@@ -138,6 +138,7 @@ def main():
 
     out = ROOT / f'dist/SlippWii-v{v}.zip'
     with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr('slippi_asix.fallback.ini.example', (ROOT / 'Nintendont/kernel/asix/slippi_asix.fallback.ini.example').read_bytes())
         z.writestr('slippi_asix.ini.example', (ROOT / 'Nintendont/kernel/asix/slippi_asix.ini.example').read_bytes())
         z.writestr('ASIX instructions.md', (ROOT / 'docs/ASIX.md').read_bytes())
         z.writestr('slippwii/lwIP-LICENSE.txt', (ROOT / 'Nintendont/kernel/asix/lwip/COPYING').read_bytes())

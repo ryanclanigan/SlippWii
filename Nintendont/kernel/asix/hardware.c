@@ -10,6 +10,7 @@
 #include "device_list.h"
 #include "usbstorage.h"
 #include "hardware.h"
+#include "asix.h"
 #include "lwip/pbuf.h"
 #include "netif/ethernet.h"
 #include "lwip/dhcp.h"
@@ -408,7 +409,7 @@ void asix_hw_boot_log(struct netif *n) {
     char *text=heap_alloc_aligned(0,4096,32);
     if(!text)return;
     int length=_sprintf(text,
-        "SlippWii ASIX DHCP test 2 preflight\r\n"
+        "SlippWii ASIX fallback test 3 preflight\r\n"
         "ip=%08x mask=%08x gateway=%08x\r\n"
         "MAC=%02x:%02x:%02x:%02x:%02x:%02x\r\n"
         "device=%08x ven=%d queue=%d failed=%d\r\n"
@@ -424,6 +425,8 @@ void asix_hw_boot_log(struct netif *n) {
         diag.polls,diag.queue_rc,diag.unknown,diag.rx_submit,diag.rx_submit_rc,diag.rx_done,diag.last_rx,diag.rx_bytes,rx_pending,
         diag.tx_submit,diag.tx_submit_rc,diag.tx_done,diag.last_tx,tx_pending,tx_count,diag.frames,diag.bad_groups,diag.input_errors,
         first_rx_n,first_tx_n);
+    const ip4_addr_t *address=netif_ip4_addr(n);
+    length+=_sprintf(text+length,"address_mode=%s dhcp_result=%d address=%u.%u.%u.%u\r\n",ASIXAddressMode(),ASIXDhcpResult(),ip4_addr1(address),ip4_addr2(address),ip4_addr3(address),ip4_addr4(address));
     struct dhcp *lease=netif_dhcp_data(n);
     length+=_sprintf(text+length,"dhcp_state=%u dns=%08x\r\n",lease?lease->state:0,ip4_addr_get_u32(ip_2_ip4(dns_getserver(0))));
     length+=_sprintf(text+length,"family=%s revision=%04x link=%u duplex=%d endpoints=%02x/%02x maxpacket=%u rx_request=%u\r\n",family_name(),revision,link_speed,link_duplex,bulk_in,bulk_out,max_packet,rx_request);

@@ -20,8 +20,8 @@ No file means DHCP; optionally, a file containing only dhcp=1 also selects DHCP.
 The included example uses DHCP and can be copied without editing router values.
 
 Address acquisition waits up to 30 seconds after the Ethernet link is ready,
-including retries and address-conflict checks. If no lease arrives, startup
-shows “No router IP. Check Ethernet/router; restart SlippWii.” It does not
+including retries and address-conflict checks. If no lease arrives and no
+fallback is configured, startup shows “No router IP. Check Ethernet/router; restart SlippWii.” Without an explicit fallback, it does not
 silently assign a guessed static address. DHCP does not fix a missing Ethernet
 link, unsupported hardware, disabled router DHCP or internet/NAT restrictions.
 
@@ -44,9 +44,41 @@ gateway=192.168.1.1
 dns=192.168.1.1
 ~~~
 
-DNS defaults to gateway if omitted. A static file can include dhcp=0, but
-**dhcp=1 cannot be combined with static address or DNS fields**. Invalid or
-unreadable files fail startup instead of silently selecting another mode.
+DNS defaults to gateway if omitted. A static file can include dhcp=0.
+With dhcp=1, static address/DNS fields are accepted only when fallback=1 is
+explicitly configured. Invalid or unreadable files fail startup.
+
+## DHCP first with a static fallback
+
+For a laptop sharing Ethernet at 192.168.137.1, this opt-in setup tries DHCP
+for up to 30 seconds, then uses the previous working static connection:
+
+~~~ini
+dhcp=1
+fallback=1
+ip=192.168.137.250
+netmask=255.255.255.0
+gateway=192.168.137.1
+dns=192.168.137.1
+~~~
+
+The file belongs at the root of the device holding Melee, as above. A copy is
+provided as Nintendont/kernel/asix/slippi_asix.fallback.ini.example. These
+addresses are specific to that laptop subnet; use valid, unused addresses for
+other networks. Ordinary router users can keep the default DHCP-only setup.
+
+Successful DHCP takes precedence over all fallback values, including DNS.
+Fallback is used only when initial DHCP setup fails and USB remains healthy;
+an adapter failure is still reported. DHCP is stopped before the static values
+are applied, so a late reply cannot switch addresses during a match. There is
+no background DHCP retry after fallback. Lease expiry after an initially
+successful DHCP connection retains normal DHCP recovery instead of falling back.
+
+The boot log reports address_mode=static-fallback, dhcp_result=-106 and the
+assigned dotted IP when selected. Successful DHCP reports address_mode=dhcp.
+To skip DHCP entirely, use dhcp=0 and fallback=0 with the same static fields.
+
+
 Native IOS networking still uses the Wii Settings profile; the custom driver
 uses DHCP or the optional file above.
 
@@ -97,7 +129,8 @@ IPv4 fragmentation/reassembly supports SlippWii's existing 1536-byte datagram li
 
 Initialization writes slippi_asix_boot.log and initial raw USB captures
 slippi_asix_rx.bin / slippi_asix_tx.bin to the game device root. The log contains
-family, revision, endpoints, negotiated link, DHCP state, DNS and I/O results. It does not include
+family, revision, endpoints, negotiated link, address mode, DHCP result/state, DNS
+and I/O results. It does not include
 user.json or account credentials. Empty captures are normal before traffic.
 
 USB buffers, the mirror receive buffer, and the lwIP heap are allocated at
@@ -122,6 +155,8 @@ On Windows: Nintendont/kernel/asix/tests/run.ps1 -Compiler gcc (TinyCC users
 also provide -CompilerInclude). Tests cover hardware initialization, packet
 formats, native fallback, TCP mirroring, general UDP socket isolation, overflow,
 fragmentation/reassembly, numeric addresses and DNS success/failure. DHCP tests cover loss/retry, wrong transaction IDs, NAK
-recovery, renewal, rebinding, expiry and startup timeout. Existing
+recovery, renewal, rebinding, expiry and startup timeout. Fallback tests verify
+static addressing/DNS, a mirroring TCP handshake, SlippWii UDP and DNS after
+timeout, DHCP precedence, stopped lease timers and USB failures. Existing
 slippi_online unit tests and loader settings tests should also pass. Host tests
 do not establish USB latency or online game performance on a Wii.
