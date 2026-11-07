@@ -320,7 +320,7 @@ int _main( int argc, char *argv[] )
 	{
 		BootStatus(NETWORK_INIT, s_size, s_cnt);
 		ret = NCDInit();
-		if (ret < 0) { BootStatusError(-10, ret); mdelay(4000); Shutdown(); }
+		if (ret < 0) { BootStatusError(-NETWORK_INIT, ret); mdelay(ret == -106 ? 8000 : 4000); Shutdown(); }
 		NetworkStarted = 1;
 		SlippiNetworkInit();
 #ifdef SLIPPI_DEBUG

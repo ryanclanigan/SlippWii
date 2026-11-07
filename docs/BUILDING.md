@@ -42,7 +42,7 @@ python tools/online_selftest.py pc --game                       # the client vs 
 ## ASIX adapter checks
 
 USB 2.0 ASIX support and lwIP are included in source; no additional ASIX library
-is required. See [ASIX.md](ASIX.md) for the static IP/DNS file and coverage limits.
+is required. See [ASIX.md](ASIX.md) for automatic DHCP, the optional static IP/DNS file and coverage limits.
 Run `sh Nintendont/kernel/asix/tests/run.sh`, or the adjacent `run.ps1` with a
 host compiler, in addition to the existing online tests. The ASIX tests simulate
 USB and Ethernet; online play still needs a physical Wii run.

@@ -1,41 +1,54 @@
 # USB 2.0 ASIX Ethernet (experimental)
 
 The built-in driver is selected automatically during network initialization.
-There is no additional menu toggle, ISO patch, firmware download or separate
-ASIX library to install. SlippWii keeps its normal IOS network path for
-unrecognized adapters, and for recognized legacy adapters when the static
-configuration file is absent. A recognized adapter with an invalid file reports
-an error. Starting without online play leaves the ASIX driver inactive.
+Recognized USB 2.0 ASIX adapters use **DHCP by default**: the router supplies
+the IP, subnet mask, gateway and DNS, without an IP file or menu toggle. The
+normal IOS path remains for adapters the custom driver does not recognize.
+Starting without online play leaves the ASIX driver inactive.
 
-## Install
+## Install (router connection)
 
-Install a SlippWii build containing this change over the existing app folder.
-Keep the existing slippwii data folder and private user.json account file.
-Copy Nintendont/kernel/asix/slippi_asix.ini.example to the **root of the device
-holding Melee**, renamed **slippi_asix.ini** (SD:/ for an SD game, USB:/ for a
-USB game). Release packages include this example without activating it.
+Install this build over the existing SlippWii app, keep its online data and
+private user.json account file, connect the Ethernet adapter to a router with
+DHCP enabled, and launch SlippWii. No separate ASIX library, firmware, IOS
+installation or Melee ISO patch is needed.
 
-For a laptop sharing internet on 192.168.137.1:
+**If an older slippi_asix.ini already exists, rename or remove it to use DHCP.**
+It is at the root of the device holding Melee (SD:/ for an SD game, USB:/ for a
+USB game). Existing static files deliberately keep their static behavior.
+No file means DHCP; optionally, a file containing only dhcp=1 also selects DHCP.
+The included example uses DHCP and can be copied without editing router values.
+
+Address acquisition waits up to 30 seconds after the Ethernet link is ready,
+including retries and address-conflict checks. If no lease arrives, startup
+shows “No router IP. Check Ethernet/router; restart SlippWii.” It does not
+silently assign a guessed static address. DHCP does not fix a missing Ethernet
+link, unsupported hardware, disabled router DHCP or internet/NAT restrictions.
+
+Renewal and rebinding continue while Melee runs. Router-supplied DNS is used for
+matchmaking; the lease's IP is also used by local discovery and online play.
+If a lease expires, the old IP is cleared while the client tries again. An
+ongoing match may disconnect if the address changes or the router disappears.
+A router that supplies no DNS can support numeric-IP LAN tests but needs its
+DHCP/DNS configuration fixed for normal hostname-based matchmaking.
+
+## Optional static address
+
+Advanced setups can keep the original format, using an unused IP in the actual
+subnet, for example:
 
 ~~~ini
-ip=192.168.137.250
+ip=192.168.1.250
 netmask=255.255.255.0
-gateway=192.168.137.1
-dns=192.168.137.1
+gateway=192.168.1.1
+dns=192.168.1.1
 ~~~
 
-Use an unused IP in the actual Ethernet subnet. For online play, the gateway
-must route to the internet and the DNS server must answer queries. DNS is
-optional in the file and defaults to gateway; set it explicitly when your
-router does not provide DNS. With gateway and DNS both omitted, only local
-numeric-IP communication works. The custom stack uses static addressing;
-DHCP is not implemented. These values replace the Wii Settings network profile
-for the custom path; IOS networking still uses the normal profile.
-
-Connect the adapter/cable before launching SlippWii. First ping the configured
-IP while Melee is running, then try Direct matchmaking with a known opponent.
-Internet sharing, NAT and firewall rules must allow SlippWii's normal UDP
-traffic. No online match over the custom path has yet been verified on a Wii.
+DNS defaults to gateway if omitted. A static file can include dhcp=0, but
+**dhcp=1 cannot be combined with static address or DNS fields**. Invalid or
+unreadable files fail startup instead of silently selecting another mode.
+Native IOS networking still uses the Wii Settings profile; the custom driver
+uses DHCP or the optional file above.
 
 ## Coverage
 
@@ -65,13 +78,6 @@ PHY modes other than Marvell/RTL8211CL are not implemented. AX88772B/C currently
 requires the standard internal Ethernet MAC mode. Gigabit families negotiate
 10/100/1000 links, but this does not make the Wii's USB bus run at gigabit speed.
 
-If no supported adapter is detected, SlippWii uses existing IOS networking.
-Legacy adapters also keep that path when **slippi_asix.ini is absent**, preserving
-normal Wii LAN-adapter setups. Providing a valid file selects the custom driver
-for a recognized legacy adapter. An invalid file is reported as an error.
-AX88772D/E and AX88178A require the file. Native fallback does not imply that IOS
-supports an otherwise unrecognized adapter.
-
 
 All new families remain physically unverified. The revision-0300 adapter was
 verified in the related Slippi Nintendont mirroring build; this SlippWii port
@@ -91,7 +97,7 @@ IPv4 fragmentation/reassembly supports SlippWii's existing 1536-byte datagram li
 
 Initialization writes slippi_asix_boot.log and initial raw USB captures
 slippi_asix_rx.bin / slippi_asix_tx.bin to the game device root. The log contains
-family, revision, endpoints, negotiated link and I/O results. It does not include
+family, revision, endpoints, negotiated link, DHCP state, DNS and I/O results. It does not include
 user.json or account credentials. Empty captures are normal before traffic.
 
 USB buffers, the mirror receive buffer, and the lwIP heap are allocated at
@@ -115,6 +121,7 @@ sh kernel/asix/tests/run.sh
 On Windows: Nintendont/kernel/asix/tests/run.ps1 -Compiler gcc (TinyCC users
 also provide -CompilerInclude). Tests cover hardware initialization, packet
 formats, native fallback, TCP mirroring, general UDP socket isolation, overflow,
-fragmentation/reassembly, numeric addresses and DNS success/failure. Existing
+fragmentation/reassembly, numeric addresses and DNS success/failure. DHCP tests cover loss/retry, wrong transaction IDs, NAK
+recovery, renewal, rebinding, expiry and startup timeout. Existing
 slippi_online unit tests and loader settings tests should also pass. Host tests
 do not establish USB latency or online game performance on a Wii.

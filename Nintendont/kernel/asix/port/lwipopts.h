@@ -13,7 +13,8 @@
 #define LWIP_RAW 0
 #define LWIP_UDP 1
 #define LWIP_UDPLITE 0
-#define LWIP_DHCP 0
+#define LWIP_DHCP 1
+#define LWIP_DHCP_MAX_DNS_SERVERS 1
 #define LWIP_AUTOIP 0
 #define LWIP_DNS 1
 #define DNS_TABLE_SIZE 2

@@ -37,7 +37,9 @@ connection (same region, wired) both sides feel normal.
 
 - A **Wii** with the [Homebrew Channel](https://wii.hacks.guide/). (Wii U's vWii is untested.)
 - A **USB LAN adapter**: a wired connection to your router. **Wi-Fi is not supported**: the Wii's
-  Wi-Fi is far too slow for online play. Set it up once in *Wii Settings > Internet*.
+  Wi-Fi is far too slow for online play. This fork automatically configures supported
+  USB 2.0 ASIX adapters through router DHCP; see [ASIX setup](docs/ASIX.md).
+  Native adapters use *Wii Settings > Internet*.
 - The Wii's **SD card** and a computer to copy files to it.
 - Your **Melee disc image**: NTSC 1.02 (`GALE01`, revision 2), the same `.iso` Slippi uses (`.ciso`,
   an extracted game or a real disc work too).
@@ -54,9 +56,11 @@ connection (same region, wired) both sides feel normal.
    from Slippi Launcher (see below).
 4. Put the card in the Wii, start **SlippWii** from the Homebrew Channel and pick Melee.
 
-**For an alternative ASIX adapter, follow the [ASIX installation instructions](docs/ASIX.md) before starting. No extra settings toggle or separate driver files are needed.
+For an ASIX adapter, router setup is automatic with this fork’s build. See the
+[ASIX instructions](docs/ASIX.md) if upgrading from a static IP configuration.
+No extra settings toggle or separate driver files are needed.
 
-The first start takes a little longer:** SlippWii makes Slippi's online menus from *your* disc,
+**The first start takes a little longer:** SlippWii makes Slippi's online menus from *your* disc,
 on the Wii, and keeps them on the card. Later starts skip this. Nothing from Melee is shipped with
 SlippWii; the zip has Project Slippi's own files (its online code, menu files and patches) and
 SlippWii.
