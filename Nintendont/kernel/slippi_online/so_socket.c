@@ -10,6 +10,7 @@
 #include "so_alloc.h"
 #include "so_util.h"
 #include "net.h"
+#include "asix/asix.h"
 #include "ipc.h"
 #include "syscalls.h"
 #include "string.h"
@@ -84,6 +85,7 @@ static ioctlv rx_vec[3] __attribute__((aligned(32)));
 static s32 ios_recvfrom(s32 s, u32 *addr, u16 *port)
 {
 	s32 n;
+	if (ASIXIsActive()) return ASIXUdpReceive(s, addr, port, rx_buffer, sizeof(rx_buffer));
 	rx_params[0] = (u32)s;
 	rx_params[1] = 0;
 	memset(rx_from, 0, sizeof(rx_from));
@@ -123,6 +125,7 @@ static u32 ReceiveThread(void *unused)
 		SO_TRACE(SO_THREAD_RX);
 		if (generation != sock_generation)
 			continue;	/* the socket was closed or replaced while we waited */
+		if (ASIXIsActive() && n == -6) { so_sleep_us(1000); continue; }
 		if (n < 0) {
 			so_mutex_lock(&stats_lock);
 			stats.receive_errors++;
@@ -188,7 +191,8 @@ static u32 SenderThread(void *unused)
 		tx_vec[1].len = sizeof(tx_params);
 		started = so_time_us();
 		SO_TRACE(SO_THREAD_DONE);
-		res = IOS_Ioctlv(top_fd, IOCTLV_SO_SENDTO, 2, 0, tx_vec);
+		res = ASIXIsActive() ? ASIXUdpSend(slot->socket, slot->addr, slot->port, slot->data, slot->len) :
+			IOS_Ioctlv(top_fd, IOCTLV_SO_SENDTO, 2, 0, tx_vec);
 		SO_TRACE(SO_THREAD_DONE);
 		took = (u32)(so_time_us() - started);
 		so_mutex_lock(&stats_lock);
@@ -247,13 +251,13 @@ int so_socket_open(u16 port)
 	so_socket_close();
 	SO_TRACE(SO_THREAD_NET);
 	SO_PHASE("sock socket()");
-	s = socket(top_fd, AF_INET, SOCK_DGRAM, IPPROTO_IP);
+	s = ASIXIsActive() ? ASIXUdpOpen(port) : socket(top_fd, AF_INET, SOCK_DGRAM, IPPROTO_IP);
 	SO_TRACE(SO_THREAD_NET);
 	SO_PHASE("sock bind()");
 	if (s < 0)
 		return s;
 	fill_sockaddr(name, INADDR_ANY, port);
-	res = bind(top_fd, s, (struct sockaddr *)name);
+	res = ASIXIsActive() ? 0 : bind(top_fd, s, (struct sockaddr *)name);
 	SO_TRACE(SO_THREAD_NET);
 	SO_PHASE(res < 0 ? "sock bind failed" : "sock bound");
 	so_log("socket: %d bound to port %u (%d)", (int)s, (unsigned)port, (int)res);
@@ -285,7 +289,8 @@ void so_socket_close(void)
 		return;
 	sock = -1;
 	sock_generation++;
-	close(top_fd, s);	/* also ends the receive thread's pending recvfrom */
+	if (ASIXIsActive()) ASIXUdpClose(s);
+	else close(top_fd, s);	/* also ends the receive thread's pending recvfrom */
 }
 
 int so_socket_is_open(void)
@@ -364,11 +369,11 @@ int so_socket_send_aux(u32 addr, u16 port, const void *data, u32 len)
 		/* A socket connected to the PC: the M1 measurements' proven way to
 		 * send to it. */
 		u8 name[32] __attribute__((aligned(32)));
-		s32 s = socket(top_fd, AF_INET, SOCK_DGRAM, IPPROTO_IP);
+		s32 s = ASIXIsActive() ? ASIXUdpOpen(0) : socket(top_fd, AF_INET, SOCK_DGRAM, IPPROTO_IP);
 		if (s < 0)
 			return s;
 		fill_sockaddr(name, addr, port);
-		if (connect(top_fd, s, (struct sockaddr *)name) < 0) {
+		if (!ASIXIsActive() && connect(top_fd, s, (struct sockaddr *)name) < 0) {
 			close(top_fd, s);
 			return -2;
 		}
@@ -383,10 +388,11 @@ int so_socket_send_aux(u32 addr, u16 port, const void *data, u32 len)
 		 * closed (an ICMP "port unreachable"): reopen it, at most every
 		 * 2 s, so the log comes back when a listener does. */
 		static u32 last_reopen_ms;
-		int res = send_on(aux_sock, 0, 0, &slice, 1);
+		int res = send_on(aux_sock, ASIXIsActive() ? addr : 0, ASIXIsActive() ? port : 0, &slice, 1);
 		if (res < 0 && so_time_ms() - last_reopen_ms > 2000) {
 			last_reopen_ms = so_time_ms();
-			close(top_fd, aux_sock);
+			if (ASIXIsActive()) ASIXUdpClose(aux_sock);
+			else close(top_fd, aux_sock);
 			aux_sock = -1;
 		}
 		return res;
@@ -445,6 +451,7 @@ int so_socket_experiment_async_send(u32 addr, u16 port, const void *data, u32 le
 	static s32 queue = -1;
 	struct ipcmessage *done = NULL;
 	s32 res;
+	if (ASIXIsActive()) return ASIXUdpSend(sock, addr, port, data, len);
 	if (sock < 0 || len > sizeof(buf))
 		return -1;
 	if (queue < 0 && (queue = mqueue_create(queue_heap, 8)) < 0)
@@ -512,6 +519,7 @@ int so_resolve(const char *host, u32 *addr)
 {
 	u8 *buf;
 	int res;
+	if (ASIXIsActive()) return ASIXResolve(host, addr);
 	if (so_parse_ipv4(host, addr) == 0)
 		return 0;
 	buf = (u8 *)so_malloc(DNS_REPLY_SIZE + DNS_NAME_SIZE);
@@ -524,7 +532,9 @@ int so_resolve(const char *host, u32 *addr)
 
 u32 so_local_ip(void)
 {
-	s32 ip = IOS_Ioctl(top_fd, IOCTL_SO_GETHOSTID, 0, 0, 0, 0);
+	s32 ip;
+	if (ASIXIsActive()) return current_ip_address;
+	ip = IOS_Ioctl(top_fd, IOCTL_SO_GETHOSTID, 0, 0, 0, 0);
 	/* A valid address may be negative as an s32 (192.168.x.x); IOS errors
 	 * are small negative numbers. */
 	if (ip == 0 || (ip < 0 && ip > -0x10000))

@@ -54,7 +54,9 @@ connection (same region, wired) both sides feel normal.
    from Slippi Launcher (see below).
 4. Put the card in the Wii, start **SlippWii** from the Homebrew Channel and pick Melee.
 
-**The first start takes a little longer:** SlippWii makes Slippi's online menus from *your* disc,
+**For an alternative ASIX adapter, follow the [ASIX installation instructions](docs/ASIX.md) before starting. No extra settings toggle or separate driver files are needed.
+
+The first start takes a little longer:** SlippWii makes Slippi's online menus from *your* disc,
 on the Wii, and keeps them on the card. Later starts skip this. Nothing from Melee is shipped with
 SlippWii; the zip has Project Slippi's own files (its online code, menu files and patches) and
 SlippWii.

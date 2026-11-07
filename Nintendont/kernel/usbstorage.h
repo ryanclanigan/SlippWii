@@ -1,5 +1,6 @@
 #ifndef __USBSTORAGE_H__
 #define __USBSTORAGE_H__
+#include "usb.h"
 
 #define	USBSTORAGE_OK			0
 #define	USBSTORAGE_ENOINTERFACE		-10000
@@ -34,4 +35,5 @@ void USBStorage_Shutdown(void);
 void USBStorage_UpdateRegisters_MainThread(void);
 bool USBStorage_IsInserted_SlippiThread(void);
 
+void USBStorage_SeedDeviceList(const usb_device_entry *entries, u32 count);
 #endif /* __USBSTORAGE_H__ */

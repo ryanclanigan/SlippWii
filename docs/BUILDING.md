@@ -39,6 +39,14 @@ python tools/online_selftest.py pc --game                       # the client vs 
 `online_selftest.py pc` needs a fake matchmaking server and peer (`slippi_fake_mm.exe`,
 `slippi_fake_peer.exe`, from the Melee 3DS port's Slippi tools); point `--tools` at them.
 
+## ASIX adapter checks
+
+USB 2.0 ASIX support and lwIP are included in source; no additional ASIX library
+is required. See [ASIX.md](ASIX.md) for the static IP/DNS file and coverage limits.
+Run `sh Nintendont/kernel/asix/tests/run.sh`, or the adjacent `run.ps1` with a
+host compiler, in addition to the existing online tests. The ASIX tests simulate
+USB and Ethernet; online play still needs a physical Wii run.
+
 ## On a Wii
 
 Leave the SD card in the Wii, open the Homebrew Channel, and send a build over the network:

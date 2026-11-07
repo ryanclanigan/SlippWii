@@ -60,6 +60,10 @@ put it where Nintendont finds it, e.g. SD:/games/), and a Slippi account
    Melee. The first start takes a minute: SlippWii makes Slippi's online menus
    from your disc. Then: Online Play > Direct or Unranked.
 
+Alternative USB 2.0 ASIX adapters: see ASIX instructions.md. Copy the included
+slippi_asix.ini.example to the game device root as slippi_asix.ini and configure
+a static IP, gateway and DNS. No additional toggle or driver files are needed.
+
 Slippi Nintendont, if you have it, keeps working as before.
 Help and bug reports: https://github.com/2gifts/SlippWii
 """
@@ -134,6 +138,9 @@ def main():
 
     out = ROOT / f'dist/SlippWii-v{v}.zip'
     with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr('slippi_asix.ini.example', (ROOT / 'Nintendont/kernel/asix/slippi_asix.ini.example').read_bytes())
+        z.writestr('ASIX instructions.md', (ROOT / 'docs/ASIX.md').read_bytes())
+        z.writestr('slippwii/lwIP-LICENSE.txt', (ROOT / 'Nintendont/kernel/asix/lwip/COPYING').read_bytes())
         z.writestr('apps/SlippWii/boot.dol', (APP / 'boot.dol').read_bytes())
         z.writestr('apps/SlippWii/meta.xml', meta)
         z.writestr('apps/SlippWii/icon.png', (REL / 'apps/SlippWii/icon.png').read_bytes())

@@ -1,0 +1,7 @@
+# Laptop shared Ethernet connection
+ip=192.168.137.250
+netmask=255.255.255.0
+gateway=192.168.137.1
+
+# DNS resolver for online matchmaking; defaults to gateway if omitted.
+dns=192.168.137.1

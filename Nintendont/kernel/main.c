@@ -45,6 +45,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "slippi_online/so_platform.h"
 #include "slippi_online/so_diag.h"
 #include "net.h"
+#include "asix/asix.h"
 
 #include "../common/include/KernelBoot.h"
 
@@ -318,7 +319,8 @@ int _main( int argc, char *argv[] )
 	if (UseNetwork == 1)
 	{
 		BootStatus(NETWORK_INIT, s_size, s_cnt);
-		NCDInit();
+		ret = NCDInit();
+		if (ret < 0) { BootStatusError(-10, ret); mdelay(4000); Shutdown(); }
 		NetworkStarted = 1;
 		SlippiNetworkInit();
 #ifdef SLIPPI_DEBUG
@@ -686,6 +688,7 @@ int _main( int argc, char *argv[] )
 		EXIShutdown();
 
 	SlippiNetworkShutdown();
+	if (ASIXIsActive()) { SlippiNetworkBroadcastShutdown(); ASIXShutdown(); }
 	SlippiFileWriterShutdown();
 
 	if (ConfigGetConfig(NIN_CFG_LOG))

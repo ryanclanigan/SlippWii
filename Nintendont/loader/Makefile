@@ -134,6 +134,9 @@ DEPENDS	:=	$(OFILES:.o=.d)
 $(OUTPUT).dol: $(OUTPUT).elf
 $(OUTPUT).elf: $(OFILES)
 
+# Generated binary headers must exist before consumers compile.
+$(filter-out %.bin.o %.zip.o %.png.o,$(OFILES)): $(filter %.bin.o %.zip.o %.png.o,$(OFILES))
+
 #---------------------------------------------------------------------------------
 # This rule links in binary data with the .jpg extension
 #---------------------------------------------------------------------------------

@@ -12,6 +12,7 @@
 #include "string.h"
 #include "debug.h"
 #include "net.h"
+#include "asix/asix.h"
 #include "Config.h"
 
 
@@ -534,6 +535,7 @@ static u32 SlippiNetworkHandlerThread(void *arg)
 {
 	while (1)
 	{
+		if (ASIXIsActive()) ASIXUpdate();
 		int status = getConnectionStatus();
 		switch (status)
 		{

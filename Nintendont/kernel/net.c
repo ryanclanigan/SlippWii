@@ -9,6 +9,8 @@
 #include "string.h"
 #include "debug.h"
 #include "net.h"
+#include "Config.h"
+#include "asix/asix.h"
 
 // File descriptor for the IOS socket driver, shared by all Slippi threads
 s32 top_fd ALIGNED(32);
@@ -33,7 +35,9 @@ static const char top_name[15] ALIGNED(32) = "/dev/net/ip/top";
  */
 int NCDInit(void)
 {
-	s32 res;
+	s32 res=ASIXTryInit();
+	if (res < 0) return res;
+	if (res > 0) return 0;
 
 	dbgprintf("entered NCDInit()\n");
 
@@ -116,6 +120,7 @@ void InitMacAddress(void) {
  */
 s32 socket(s32 fd, u32 domain, u32 type, u32 protocol)
 {
+	if (ASIXIsActive()) return ASIXSocket(domain, type, protocol);
 	s32 res;
 
 	// Ioctl len_in is 12
@@ -137,6 +142,7 @@ s32 socket(s32 fd, u32 domain, u32 type, u32 protocol)
  */
 s32 close(s32 fd, s32 socket)
 {
+	if (ASIXIsActive()) return ASIXClose(socket);
 	s32 res;
 	STACK_ALIGN(u32, params, 1, 32);
 	if (fd < 0) return -62;
@@ -152,6 +158,7 @@ s32 close(s32 fd, s32 socket)
  */
 s32 bind(s32 fd, s32 socket, struct sockaddr *name)//, socklen_t address_len)
 {
+	if (ASIXIsActive()) return ASIXBind(socket, name);
 	s32 res;
 
 	STACK_ALIGN(struct bind_params, params, 1, 32);
@@ -176,6 +183,7 @@ s32 bind(s32 fd, s32 socket, struct sockaddr *name)//, socklen_t address_len)
  */
 s32 listen(s32 fd, s32 socket, u32 backlog)
 {
+	if (ASIXIsActive()) return ASIXListen(socket, backlog);
 	s32 res;
 
 	// Ioctl len_in is 8
@@ -197,6 +205,7 @@ s32 listen(s32 fd, s32 socket, u32 backlog)
  */
 s32 accept(s32 fd, s32 socket)
 {
+	if (ASIXIsActive()) return ASIXAccept(socket);
 	s32 res;
 
 	// Ioctl len_in is 4
@@ -220,6 +229,7 @@ s32 accept(s32 fd, s32 socket)
  */
 s32 sendto(s32 fd, s32 socket, void *data, s32 len, u32 flags)
 {
+	if (ASIXIsActive()) return ASIXSend(socket, data, len);
 	s32 res;
 	STACK_ALIGN(struct sendto_params, params, 1, 32);
 	STACK_ALIGN(ioctlv, vec, 2, 32);
@@ -262,6 +272,7 @@ s32 sendto(s32 fd, s32 socket, void *data, s32 len, u32 flags)
  */
 s32 recvfrom(s32 fd, s32 socket, void *mem, s32 len, u32 flags)
 {
+	if (ASIXIsActive()) return ASIXRecv(socket, mem, len);
 	s32 res;
 	//u8* message_buf = NULL;
 	STACK_ALIGN(u32, params, 2, 32);
@@ -290,6 +301,7 @@ s32 recvfrom(s32 fd, s32 socket, void *mem, s32 len, u32 flags)
  */
 s32 connect(s32 fd, s32 socket, struct sockaddr *name)
 {
+	if (ASIXIsActive()) return ASIXConnect(socket, name);
 	s32 res;
 	STACK_ALIGN(struct connect_params, params, 1, 32);
 
@@ -313,6 +325,7 @@ s32 connect(s32 fd, s32 socket, struct sockaddr *name)
  */
 s32 setsockopt(s32 fd, s32 socket, u32 level, u32 optname, void *optval, u32 optlen)
 {
+	if (ASIXIsActive()) return ASIXSetSockOpt(socket, level, optname, optval, optlen);
 	s32 res;
 	STACK_ALIGN(struct setsockopt_params, params, 1, 32);
 
@@ -336,6 +349,7 @@ s32 setsockopt(s32 fd, s32 socket, u32 level, u32 optname, void *optval, u32 opt
  */
 s32 poll(s32 fd, struct pollsd *sds, s32 nsds, s32 timeout)
 {
+	if (ASIXIsActive()) return ASIXPoll(sds, nsds, timeout);
 	STACK_ALIGN(u64, params, 1, 32);
 	union ullc outv;
 	s32 res;

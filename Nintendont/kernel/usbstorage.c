@@ -678,6 +678,16 @@ bool __has_device_after_change()
 	return false;
 }
 
+void USBStorage_SeedDeviceList(const usb_device_entry *entries, u32 count)
+{
+	if (!__inited || venchangequeue < 0 || count > USB_MAX_DEVICES)
+		return;
+	memset(AttachedDevices, 0, sizeof(AttachedDevices));
+	memcpy(AttachedDevices, entries, count * sizeof(*entries));
+	venchangemsg->result = count;
+	__slippi_thread_dirty = true;
+}
+
 // Call periodically from only the main thread
 void USBStorage_UpdateRegisters_MainThread(void)
 {
