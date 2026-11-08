@@ -45,9 +45,9 @@ OBJECTS	:= start.o common.o alloc.o GCAM.o JVSIO.o JVSIOMessage.o FST.o DI.o Rea
 	   prs.o SDI.o usb.o usbstorage.o wdvd.o net.o
 ASIX_CORE := $(wildcard asix/lwip/src/core/*.c) $(wildcard asix/lwip/src/core/ipv4/*.c) asix/lwip/src/netif/ethernet.c
 OBJECTS += asix/asix.o asix/hardware.o $(ASIX_CORE:.c=.o)
-# The main dispatcher and IOS-bound mirroring wrappers favor size; DHCP must
-# fit the fixed kernel region. Device handlers and online code keep their flags.
-main.o net.o SlippiNetwork.o SlippiNetworkBroadcast.o: CFLAGS += -Os
+# The dispatcher, IOS networking wrappers and game patch scanner favor size
+# to fit USB Ethernet in the fixed kernel region. No linker region is enlarged.
+main.o net.o SlippiNetwork.o SlippiNetworkBroadcast.o Patch.o: CFLAGS += -Os
 asix/%.o: asix/%.c
 	@echo "CC    $<"
 	@$(CC) $(CFLAGS) -std=gnu11 -Os -Iasix/port -Iasix/lwip/src/include $(CPPFLAGS) -c -MMD -MP -MF $(@:.o=.d) -o $@ $<

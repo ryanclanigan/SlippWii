@@ -1,16 +1,16 @@
-# USB 2.0 ASIX Ethernet (experimental)
+# USB 2.0 Ethernet: ASIX and Realtek (experimental)
 
 The built-in driver is selected automatically during network initialization.
-Recognized USB 2.0 ASIX adapters use **DHCP by default**: the router supplies
+Recognized USB 2.0 ASIX and RTL8152B adapters use **DHCP by default**: the router supplies
 the IP, subnet mask, gateway and DNS, without an IP file or menu toggle. The
 normal IOS path remains for adapters the custom driver does not recognize.
-Starting without online play leaves the ASIX driver inactive.
+Starting without online play leaves the custom USB driver inactive.
 
 ## Install (router connection)
 
 Install this build over the existing SlippWii app, keep its online data and
 private user.json account file, connect the Ethernet adapter to a router with
-DHCP enabled, and launch SlippWii. No separate ASIX library, firmware, IOS
+DHCP enabled, and launch SlippWii. No separate adapter library, firmware download, IOS
 installation or Melee ISO patch is needed.
 
 **If an older slippi_asix.ini already exists, rename or remove it to use DHCP.**
@@ -93,6 +93,7 @@ uses DHCP or the optional file above.
 | AX88772B / AX88772C | Legacy header mode, software checksums | Needed |
 | AX88178 | Legacy framing, Marvell or RTL8211CL external PHY | Needed |
 | AX88178A | USB 2.0 gigabit register/framing path | Needed |
+| RTL8152B | Realtek register mode, 24-byte RX / 8-byte TX descriptors | Needed |
 | AX88772D / AX88772E | Existing revision-0300 register/framing path | One revision-0300 adapter verified; D vs E is not distinguishable by these IDs |
 
 Detection uses the explicit IDs in [device_list.h](../Nintendont/kernel/asix/device_list.h),
@@ -100,6 +101,20 @@ including known legacy OEM IDs, and validates the USB device descriptor.
 AX88772D/E requires **0b95:1790, bcdDevice 0300**. AX88178A requires
 **0b95:178a, bcdDevice 0100**. The legacy AX88772 chipcode selects original,
 A or B/C initialization even when the advertised model name differs.
+Realtek requires **0bda:8152** and internal TCR1 silicon ID **4c10** (revision 2)
+or **4800** (revision 7). The Windows hardware ID
+USB\VID_0BDA&PID_8152&REV_2000 confirms the USB identity, but REV_2000 alone
+does not identify the internal silicon. Unsupported silicon fails before any
+vendor register writes; the log records silicon= and startup returns -12.
+Original 4c00 revision-1 RTL8152 and RTL8153/8156/8157 are outside this port.
+
+Realtek detection searches up to eight configurations for a vendor-specific
+interface. It does not send Realtek-framed packets through a CDC interface.
+Revision 2 includes the Realtek-authored 648-byte volatile RAM patch; revision 7
+does not use that patch. No EEPROM/eFuse is programmed. RX aggregation and VLAN
+stripping are disabled, and checksums are handled in software. This initial
+path handles Ethernet frames up to 1514 bytes at 10/100 Mbps.
+
 Bulk endpoints are discovered from one interface/alternate setting rather than
 assuming all adapters have the same endpoints.
 
@@ -111,9 +126,10 @@ requires the standard internal Ethernet MAC mode. Gigabit families negotiate
 10/100/1000 links, but this does not make the Wii's USB bus run at gigabit speed.
 
 
-All new families remain physically unverified. The revision-0300 adapter was
-verified in the related Slippi Nintendont mirroring build; this SlippWii port
-still requires hardware validation. Hotplug and runtime link renegotiation are
+The revision-0300 ASIX path was verified in Slippi Nintendont mirroring and
+SlippWii with laptop Internet sharing and static fallback. Other ASIX families
+and the Realtek path remain physically unverified. Router DHCP and online
+game performance need physical validation for the new Realtek path. Hotplug and runtime link renegotiation are
 not implemented.
 
 ## Transport and diagnostics
@@ -123,18 +139,19 @@ The hardware implementation is ported from ryanclanigan/Nintendont commit
 2.2.1 instance between mirroring and online play. SlippWii's receive and sender
 threads use a separate general UDP API with bounded queues and descriptor
 generations. Matchmaking and netplay retain the same session port; the log sink
-uses a separate socket. Native IOS behavior is preserved when ASIX is inactive.
+uses a separate socket. Native IOS behavior is preserved when the custom driver is inactive.
 DNS uses lwIP rather than asking IOS to resolve on a different network interface.
 IPv4 fragmentation/reassembly supports SlippWii's existing 1536-byte datagram limit.
 
 Initialization writes slippi_asix_boot.log and initial raw USB captures
 slippi_asix_rx.bin / slippi_asix_tx.bin to the game device root. The log contains
-family, revision, endpoints, negotiated link, address mode, DHCP result/state, DNS
+family, revision, Realtek silicon ID, endpoints, negotiated link, address mode, DHCP result/state, DNS
 and I/O results. It does not include
 user.json or account credentials. Empty captures are normal before traffic.
 
 USB buffers, the mirror receive buffer, and the lwIP heap are allocated at
-runtime because SlippWii's fixed kernel data region is almost full. The kernel
+runtime because SlippWii's fixed kernel data region is almost full. The game patch scanner is compiled with -Os to make room for the additional
+driver. The kernel
 linker regions and thread stack locations are unchanged. All USB/raw-stack
 operations run under one mutex; receive waiters release it while sleeping.
 
@@ -145,6 +162,13 @@ SDK is needed. See [BUILDING.md](BUILDING.md). lwIP's BSD license is in
 Nintendont/kernel/asix/lwip/COPYING. Hardware source attribution cites Linux
 v6.18, ASIX driver 42feb1252fe0669845a8d6714bcc77bfc19eea1d and legacy driver
 e87b8576e6fa3accd373cff326850ab0a216df36, as in the original port.
+Realtek register/firmware support is adapted from Realtek Semiconductor Corp.'s
+GPL-2.0 driver in [U-Boot v2025.10](https://github.com/u-boot/u-boot/tree/v2025.10/drivers/usb/eth)
+(r8152.c, r8152.h, r8152_fw.c), cross-checked with
+[Linux v6.18 r8152.c](https://github.com/torvalds/linux/blob/v6.18/drivers/net/usb/r8152.c).
+The Realtek port and included RAM patch retain GPL-2.0-only attribution. The
+existing kernel/asix directory and slippi_asix filenames serve both families;
+they are retained for compatibility with existing installations.
 
 ~~~sh
 cd Nintendont
@@ -159,4 +183,7 @@ recovery, renewal, rebinding, expiry and startup timeout. Fallback tests verify
 static addressing/DNS, a mirroring TCP handshake, SlippWii UDP and DNS after
 timeout, DHCP precedence, stopped lease timers and USB failures. Existing
 slippi_online unit tests and loader settings tests should also pass. Host tests
-do not establish USB latency or online game performance on a Wii.
+also exercise both Realtek silicon revisions, byte enables, configuration
+selection, every vendor operation's error/short-transfer return, reset/link
+timeouts, malformed aggregates, CRC filtering, FCS stripping, and every frame
+length from 14 through 1514 bytes. Host tests do not establish USB latency or online game performance on a Wii.

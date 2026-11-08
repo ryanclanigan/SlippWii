@@ -60,7 +60,8 @@ put it where Nintendont finds it, e.g. SD:/games/), and a Slippi account
    Melee. The first start takes a minute: SlippWii makes Slippi's online menus
    from your disc. Then: Online Play > Direct or Unranked.
 
-Alternative USB 2.0 ASIX adapters: see ASIX instructions.md. DHCP configures the
+Alternative USB 2.0 ASIX / Realtek RTL8152B adapters: see ASIX instructions.md.
+DHCP configures the
 connection automatically. If upgrading from a static setup, rename/remove
 slippi_asix.ini from the game device root to use DHCP. No extra driver files.
 

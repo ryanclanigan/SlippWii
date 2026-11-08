@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased (USB Ethernet fork)
+
+- Added experimental automatic RTL8152B support (0bda:8152, internal silicon
+  4c10/4800) alongside ASIX, using the same DHCP/static fallback settings.
+  Drivers and the revision-2 volatile RAM patch are built in. Physical RTL8152B
+  validation is pending; see [USB Ethernet setup](docs/ASIX.md).
+
 ## 1.3.0
 
 - Ping display: your ping to your opponent in the top left corner during a game, in the same cyan as
