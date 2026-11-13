@@ -18,6 +18,8 @@ It is at the root of the device holding Melee (SD:/ for an SD game, USB:/ for a
 USB game). Existing static files deliberately keep their static behavior.
 No file means DHCP; optionally, a file containing only dhcp=1 also selects DHCP.
 The included example uses DHCP and can be copied without editing router values.
+Signed release ZIPs name the examples *.ini.example.txt to match the updater
+allowlist; rename a copied example to slippi_asix.ini when using it.
 
 Address acquisition waits up to 30 seconds after the Ethernet link is ready,
 including retries and address-conflict checks. If no lease arrives and no
@@ -150,8 +152,11 @@ and I/O results. It does not include
 user.json or account credentials. Empty captures are normal before traffic.
 
 USB buffers, the mirror receive buffer, and the lwIP heap are allocated at
-runtime because SlippWii's fixed kernel data region is almost full. The game patch scanner is compiled with -Os to make room for the additional
-driver. The kernel
+runtime because SlippWii's fixed kernel data region is almost full. The ARM kernel is compiled with -Os; the USB/lwIP and online C objects also
+use GCC link-time optimization so the 1.5.1 rollback code and USB drivers fit.
+The prefetch thread keeps its 8 KiB stack but allocates it from the existing
+32-byte-aligned online arena, with checked allocation/thread failures.
+The PPC game and rollback engine retain their original build flags. The kernel
 linker regions and thread stack locations are unchanged. All USB/raw-stack
 operations run under one mutex; receive waiters release it while sleeping.
 
@@ -187,3 +192,11 @@ also exercise both Realtek silicon revisions, byte enables, configuration
 selection, every vendor operation's error/short-transfer return, reset/link
 timeouts, malformed aggregates, CRC filtering, FCS stripping, and every frame
 length from 14 through 1514 bytes. Host tests do not establish USB latency or online game performance on a Wii.
+
+## Upgrading this fork
+
+Install fork builds by SD card to retain the custom Ethernet driver. The new
+upstream Check for Updates uses IOS networking in the loader, where this
+kernel driver is not active; it may fail with adapters IOS cannot drive.
+Installing an official upstream build replaces the fork driver. This port
+keeps the upstream update verification and file allowlist unchanged.

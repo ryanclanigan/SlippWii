@@ -456,7 +456,7 @@ void asix_hw_boot_log(struct netif *n) {
     char *text=heap_alloc_aligned(0,4096,32);
     if(!text)return;
     int length=_sprintf(text,
-        "SlippWii USB Ethernet test 4 preflight\r\n"
+        "SlippWii 1.5.1 USB Ethernet test 5 preflight\r\n"
         "ip=%08x mask=%08x gateway=%08x\r\n"
         "MAC=%02x:%02x:%02x:%02x:%02x:%02x\r\n"
         "device=%08x ven=%d queue=%d failed=%d\r\n"

@@ -1,7 +1,7 @@
 # SlippWii
 
-**Unofficial Slippi Online for the Wii.** Play Slippi's online modes from a real Wii (with a
-GameCube controller, on a CRT if you like), against players on Slippi Dolphin.
+**Unofficial Slippi Online for the Wii, with rollback netcode.** Play Slippi's online modes from a
+real Wii (with a GameCube controller, on a CRT if you like), against players on Slippi Dolphin.
 
 > [!IMPORTANT]
 > **SlippWii is an unofficial fan project.** It is not made by, affiliated with or endorsed by
@@ -18,6 +18,7 @@ with and help improve the project.
 
 | | |
 |---|---|
+| **Rollback netcode** | Since 1.4.0. The Wii predicts and rolls back the way Slippi Dolphin does, running Slippi's own rollback code. In automated games against Slippi Dolphin through simulated connections, every frame matched the PC's replay. |
 | **Direct** (connect codes) | Works. Tested for many hours against Slippi Dolphin on PC, including automated runs of 75 games whose replays matched frame for frame on both sides. |
 | **Unranked** | Should work (same code path as Direct) but has had little testing. |
 | **Teams** | Untested. |
@@ -27,11 +28,20 @@ with and help improve the project.
 | Ping display | The ping to your opponent in the top left corner during a game, as on Slippi Dolphin. On or off with the **Show Ping** switch on the online character select screen (remembered). |
 | Replays | As on Slippi Nintendont: with **Slippi Replays** on in the settings (the *Slippi* page), each game is saved as a Slippi replay (`.slp`) in a `Slippi` folder on your *other* drive: a USB drive if your game is on the SD card, the SD card if your game is on a USB drive. Both must be plugged in; the LAN adapter takes one of the Wii's USB ports, so the drive goes in the other. Off by default. |
 | Quick chat, connect code history | Work as on Slippi Dolphin. |
+| Updates | Since 1.5.0, SlippWii updates itself on the Wii: **Check for Updates** on the *Slippi Settings* page downloads a newer version and installs it on the card. |
 
-How it feels: your opponent on PC plays with rollback, exactly as against another PC player.
-The Wii doesn't roll back. Instead, it waits whenever the opponent's inputs are late (*lockstep*),
-so on a bad connection the Wii side stutters briefly rather than rolling back. On a good
-connection (same region, wired) both sides feel normal.
+How it feels: both sides play with rollback. When your opponent's input is late, the Wii carries
+on with a guess and corrects it when the input arrives, as Slippi Dolphin does. A late packet no
+longer freezes the game, and to your opponent the Wii plays like another PC.
+
+- **Input lag.** At 2 delay frames (Slippi's standard), a button press reaches the middle of a
+  CRT's picture in about 75 ms while your ping is under about 75 ms, and in about 92 ms above that.
+  At 1 delay frame it is about 59 ms, the same as a Wii playing offline, under about 42 ms of ping.
+- **High ping.** From about 90 ms of ping the Wii is near its limit: rollback still works, but you
+  may see brief hitches.
+- **Memory card.** Rollback needs memory that a very large virtual memory card also uses. With a
+  card of 1019 blocks or more (Nintendont's *Memcard Blocks* setting), the Wii waits for late inputs
+  instead of rolling back, as SlippWii 1.3 did. The default card (251 blocks) is fine.
 
 ## What you need
 
@@ -65,8 +75,32 @@ on the Wii, and keeps them on the card. Later starts skip this. Nothing from Mel
 SlippWii; the zip has Project Slippi's own files (its online code, menu files and patches) and
 SlippWii.
 
-To update, extract the newer zip onto the card the same way (your account and settings stay).
 To uninstall, delete `apps/SlippWii`, `slippwii/` and `slippwii_nincfg.bin`.
+
+### Updating
+
+The first install is done with a computer, as above. After that the Wii updates itself (SlippWii
+1.5.0 and later):
+
+1. Start SlippWii and press **B** on the game list. *Check for Updates* is the first row of the
+   *Slippi Settings* page: press **A**.
+2. If a newer version is out, SlippWii shows what is new. Press **A** to install it. It downloads
+   the release from GitHub, checks it, and replaces SlippWii's files on the card. Your account and
+   your settings are kept.
+3. Start SlippWii again from the Homebrew Channel. The first start after an update takes a little
+   longer.
+
+It needs the same wired connection online play does. Don't turn the console off while it installs.
+If anything goes wrong, SlippWii says what, and the old version stays on the card.
+
+You can still update with a computer: extract the newer zip onto the card the same way as the first
+time. From 1.4.0 or older, that is the way to get 1.5.0.
+
+SlippWii only installs a release that carries SlippWii's own signature, and it contacts GitHub only
+when you press the button: nothing about you or your console is sent.
+
+**Had the rollback beta?** Rollback is in the regular SlippWii since 1.4.0. Extract the newest zip
+onto the card, then delete `apps/SlippWii-Rollback` from it: the beta's app is no longer needed.
 
 ### Your Slippi account
 
@@ -104,6 +138,23 @@ post your SD card's files online.
 To change Nintendont's own settings, press **B** on the game list (**L**/**R** change pages). They
 are saved when you leave the settings or start a game.
 
+On the *Slippi Settings* page:
+
+| Setting | What it does |
+|---|---|
+| **Check for Updates** | Looks for a newer SlippWii and installs it (see *Updating*). |
+| **No Music** | Turns the game's music off, in the menus and in matches. Sound effects stay. |
+| **L-Cancel Red Flash** | A character flashes red when it misses an L-cancel. |
+| **No Screen Shake** | The screen does not shake. |
+| **Center 2P HUD** | With two players, the percents sit in the middle of the screen. |
+| **Freeze FD** | Final Destination's background stands still. |
+| **Screen** (under *MELEE CODES*) | Widescreen, online too. |
+| **Diagnostic Log** | Saves SlippWii's log on the SD card for a problem report (see *Reporting problems*). Leave it off otherwise. |
+
+*L-Cancel Red Flash*, *No Screen Shake*, *Center 2P HUD* and *Freeze FD* are Slippi's own optional
+codes, the ones you can turn on in Slippi Dolphin. They and *No Music* work online and offline,
+change only what your console shows and plays, and your opponent does not need them.
+
 SlippWii has its own app folder, settings file and data folder, so **Slippi Nintendont stays
 installed and works as before**. Use it for offline play and console mirroring as usual.
 
@@ -115,6 +166,7 @@ On the SD card:
 | `slippwii/user.json` | Your Slippi account (keep it private) |
 | `slippwii/netplay.gct`, `slippwii/files/`, `slippwii/patches/` | Slippi's online code, menu files and patches |
 | `slippwii/config.ini` | Settings (optional) |
+| `slippwii/logs/` | Crash reports, and the diagnostic log when it is on |
 | `slippwii_nincfg.bin` | SlippWii's loader settings (Slippi Nintendont uses `slippi_nincfg.bin`) |
 
 If your games are on a USB drive, SlippWii copies what it needs to `slippwii/` on that drive by itself.
@@ -132,8 +184,12 @@ SlippWii checks everything before Melee starts and explains any problem on the T
   other.
 - **Black screen after starting SlippWii:** power the Wii off fully (hold the power button), turn it
   on again and start SlippWii from the Homebrew Channel.
-- **Stutters during games:** use the wired adapter (not Wi-Fi), raise *Delay Frames* by one or two,
-  and play opponents in your region.
+- **Stutters during games:** use the wired adapter (not Wi-Fi) and play opponents in your region:
+  *Show Ping* shows your ping in a game, and from about 90 ms the Wii has little room left. If it
+  stutters at a low ping, send us a log (see *Reporting problems*).
+- **Worse than SlippWii 1.3 was for you?** Tell us, with a log. Until it is fixed you can add the
+  line `rollback=0` to `slippwii/config.ini` on the card (make the file if it isn't there): the Wii
+  then waits for late inputs, as 1.3 did.
 
 Still stuck? Ask in #help on the [SlippWii Discord](https://discord.gg/ytSjxmknHx).
 
@@ -142,6 +198,21 @@ Still stuck? Ask in #help on the [SlippWii Discord](https://discord.gg/ytSjxmknH
 Open an [issue](https://github.com/2gifts/SlippWii/issues/new/choose) and say what you did, what
 happened (a photo of any SlippWii message on the TV helps), your SlippWii version (shown at the top of the SlippWii screen), the mode, and your
 opponent's setup. A Slippi replay (`.slp`) from the opponent's side helps with desyncs.
+
+**Send the log.** It tells us far more than a description can.
+
+1. If the game **crashed**, there is nothing to turn on: SlippWii saved a crash report by itself.
+2. For anything else (stutter, a freeze, a black screen, a disconnect), press **B** on the game list,
+   go to the *Slippi Settings* page and set **Diagnostic Log** to **Yes**. Then play until the problem
+   happens again. If the console hangs, wait ten seconds before you switch it off.
+3. Put the SD card (or the USB drive your game is on) in a computer and attach the whole
+   `slippwii/logs` folder to your report, zipped.
+4. Set **Diagnostic Log** back to **No**: while it is on, a match can hitch now and then when the
+   log is written.
+
+The log is plain text, so you can read it first. It has your SlippWii version, console type, settings
+and what the game and the network did. IP addresses and connect codes are masked, and names and your
+Slippi play key are never written.
 
 ## How it works
 
@@ -152,6 +223,10 @@ with a network client (matchmaking, ENet peer connection) and the same online co
 3.6.4 runs. See [`docs/HOW_IT_WORKS.md`](docs/HOW_IT_WORKS.md) and the byte-level
 [`docs/EXI_DEVICE_SPEC.md`](docs/EXI_DEVICE_SPEC.md).
 
+Rollback needs savestates, which Dolphin makes from outside the game. A Wii has no outside, so a
+small engine inside Melee makes them on the Wii's own CPU: it tracks what the game writes each frame
+and copies only that. See [`docs/ROLLBACK.md`](docs/ROLLBACK.md).
+
 Building from source: [`docs/BUILDING.md`](docs/BUILDING.md).
 
 ## Credits and licence
@@ -160,6 +235,8 @@ Building from source: [`docs/BUILDING.md`](docs/BUILDING.md).
   (slippi-ssbm-asm) and Slippi Nintendont, which this is built on. Thank you, Fizzi and the Slippi team.
 - [Nintendont](https://github.com/FIX94/Nintendont) by FIX94, crediar and contributors.
 - [ENet](http://enet.bespin.org/) by Lee Salzman (MIT).
+- [BearSSL](https://bearssl.org/) by Thomas Pornin (MIT) and puff by Mark Adler (zlib licence), for
+  *Check for Updates*.
 
 SlippWii is licensed under the GNU General Public License v2 (see [LICENSE](LICENSE)), as
 Nintendont is. Slippi's online code that SlippWii downloads and runs (slippi-ssbm-asm) is GPLv3.

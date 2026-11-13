@@ -7,6 +7,66 @@
   Drivers and the revision-2 volatile RAM patch are built in. Physical RTL8152B
   validation is pending; see [USB Ethernet setup](docs/ASIX.md).
 
+## 1.5.1
+
+- Fixed: with the Wii in **480p** (a component cable, or *Force Progressive*), online games ran in
+  slow motion and the screen could go black a few seconds in. Rollback read the controller only
+  every other screen refresh in 480p, so the game ran at about half speed, and then tried to catch
+  up in a way a 480p display may answer with a black screen. Every rollback version had this; 480i
+  (the standard cables) was never affected. Found from a player's diagnostic log.
+- The diagnostic log's first line now says whether the game runs in 480p.
+- This is the first update you can install from the Wii: **Check for Updates** on the *Slippi
+  Settings* page.
+
+## 1.5.0
+
+- **Check for Updates**, the first row of the *Slippi Settings* page: SlippWii looks on GitHub for a
+  newer release and installs it on the card, on the Wii, over the wired connection. Your account
+  and your settings are kept; if anything fails, the old version stays. It installs only a release
+  signed with SlippWii's key, and contacts GitHub only when you press the button. This first
+  version with it still comes by SD card; the ones after it need no computer.
+- **No Music**, a switch on the same page: the game's music off, in the menus and in matches,
+  online and offline, remembered with the other settings. Sound effects stay.
+
+## 1.4.0
+
+**Rollback netcode is now the regular SlippWii.** What the "SlippWii Rollback" betas were is this
+release: one app, one download.
+
+- Rollback: when the opponent's input is late, the Wii carries on with a guess and corrects it when
+  the input arrives, as Slippi Dolphin does, where 1.3 stopped and waited. A late packet no longer
+  freezes the game, and to the opponent a Wii plays like another PC.
+- With it, everything of the betas (below): the fix for the crash or desync a few seconds into a
+  match, less input lag, four of Slippi Dolphin's optional codes as switches, widescreen online,
+  crash reports and the **Diagnostic Log** on the SD card.
+- If you had a beta: delete `apps/SlippWii-Rollback` from the SD card. The regular app replaces it.
+- Next to a virtual memory card of 1019 blocks or more there is no room for rollback, and a game
+  waits for late inputs as in 1.3. The line `rollback=0` in `slippwii/config.ini` does the same on
+  purpose, for troubleshooting.
+- Since 1.4.0-beta.3 nothing else changed: the version, and rollback on without a setting.
+
+## 1.4.0-beta.3 (rollback beta)
+
+- Fixed a crash or desync a few seconds into a match that some consoles had again and again: "GO" left
+  on the screen, characters that could not move, or a crash. The rollback code used a table it had not
+  cleared, and what the table held depended on what the console had done before.
+- Less input lag: under about 75 ms of ping at 2 delay frames (42 ms at 1), each frame reaches the
+  screen one refresh sooner than in beta 2. About 92 ms from a button to the middle of a CRT's picture
+  becomes about 75 at 2 delay frames, and about 75 becomes about 59 at 1, which is what a console has
+  offline. Over those pings a game is as it was.
+- Four of Slippi Dolphin's optional codes, as switches on the *Slippi Settings* page: **L-Cancel Red
+  Flash**, **No Screen Shake**, **Center 2P HUD** and **Freeze FD**. They work online and offline and
+  change only what your console draws.
+- Widescreen (the *Screen* setting) now works online too.
+- A crash report is saved on the SD card (`slippwii/logs`) when the game crashes or hangs, and the new
+  **Diagnostic Log** switch saves the whole log there, to send with a problem report. IP addresses and
+  connect codes are masked; names and the Slippi play key are never written.
+- The loader's screen and the logs now say the beta's version (betas 1 and 2 said 1.3.1).
+
+## 1.3.1
+
+- The online character select's settings (Delay Frames, Rumble, Show Ping) now work from any controller port, not just port 1 (#4).
+
 ## 1.3.0
 
 - Ping display: your ping to your opponent in the top left corner during a game, in the same cyan as

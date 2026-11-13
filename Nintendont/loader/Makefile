@@ -23,6 +23,7 @@ TARGET		:= $(notdir $(CURDIR))
 BUILD		:= build
 SOURCES		:= source
 SOURCES		+= source/unzip
+SOURCES		+= source/update
 SOURCES		+= ../common/config
 DATA		:= data
 INCLUDES	:= include ../fatfs
@@ -39,12 +40,12 @@ CFLAGS	:= -O3 -g -std=gnu89 -Wno-format-truncation \
 CXXFLAGS := $(CFLAGS)
 
 # NOTE: Do NOT change to := - needed for proper expansion of $(CURDIR) later.
-LDFLAGS	= -g $(MACHDEP) -Wl,-Map,$(notdir $@).map,-wrap,wiiuse_register
+LDFLAGS	= -g $(MACHDEP) -Wl,-Map,$(notdir $@).map,-wrap,wiiuse_register,-u,zz_pad_bin	# (tools/build.sh's layout padding, when it adds one: kept, not collected)
 
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:= -lfreetype -lpngu -lpng -lz \
+LIBS	:= -lbearssl -lfreetype -lpngu -lpng -lz \
 	   -lwiiuse -lwiidrc -lwupc -lbte -lfatfs-ppc -logc -ldi -lm
 
 #---------------------------------------------------------------------------------
@@ -132,10 +133,10 @@ DEPENDS	:=	$(OFILES:.o=.d)
 # main targets
 #---------------------------------------------------------------------------------
 $(OUTPUT).dol: $(OUTPUT).elf
-$(OUTPUT).elf: $(OFILES)
-
-# Generated binary headers must exist before consumers compile.
+# Generated binary headers must exist before compiling their consumers.
 $(filter-out %.bin.o %.zip.o %.png.o,$(OFILES)): $(filter %.bin.o %.zip.o %.png.o,$(OFILES))
+
+$(OUTPUT).elf: $(OFILES)
 
 #---------------------------------------------------------------------------------
 # This rule links in binary data with the .jpg extension
@@ -144,17 +145,17 @@ $(filter-out %.bin.o %.zip.o %.png.o,$(OFILES)): $(filter %.bin.o %.zip.o %.png.
 #---------------------------------------------------------------------------------
 	@echo $(notdir $<)
 	@$(bin2o)
-	
+
 %.zip.o	:	%.zip
 #---------------------------------------------------------------------------------
 	@echo $(notdir $<)
 	@$(bin2o)
-	
+
 %.png.o	:	%.png
 #---------------------------------------------------------------------------------
 	@echo $(notdir $<)
 	@$(bin2o)
-	
+
 -include $(DEPENDS)
 #---------------------------------------------------------------------------------
 endif

@@ -26,7 +26,7 @@ else
 endif
 
 
-CFLAGS	:= -mbig-endian -O3 -std=gnu89 -g -I. -Wall \
+CFLAGS	:= -mbig-endian -Os -std=gnu89 -g -I. -Wall \
 	   -mcpu=arm926ej-s -msoft-float -mfloat-abi=soft \
 	   -fdata-sections -ffunction-sections -fno-builtin-toupper -fno-builtin-memcpy \
 	   -fno-builtin-memset -fno-builtin-memcmp -fno-builtin-malloc -fno-builtin-free \
@@ -34,7 +34,7 @@ CFLAGS	:= -mbig-endian -O3 -std=gnu89 -g -I. -Wall \
 CPPFLAGS := -I. -I../fatfs -I../codehandler
 
 ASFLAGS	:= -mbig-endian -mcpu=arm926ej-s
-LDFLAGS	:= -nostartfiles -nodefaultlibs -mbig-endian -Wl,--gc-sections,-T,kernel.ld,-Map,kernel.map -n
+LDFLAGS	:= -flto -Os -nostartfiles -nodefaultlibs -mbig-endian -Wl,--gc-sections,-T,kernel.ld,-Map,kernel.map -n
 
 TARGET	:= kernel.elf
 OBJECTS	:= start.o common.o alloc.o GCAM.o JVSIO.o JVSIOMessage.o FST.o DI.o RealDI.o \
@@ -45,12 +45,11 @@ OBJECTS	:= start.o common.o alloc.o GCAM.o JVSIO.o JVSIOMessage.o FST.o DI.o Rea
 	   prs.o SDI.o usb.o usbstorage.o wdvd.o net.o
 ASIX_CORE := $(wildcard asix/lwip/src/core/*.c) $(wildcard asix/lwip/src/core/ipv4/*.c) asix/lwip/src/netif/ethernet.c
 OBJECTS += asix/asix.o asix/hardware.o $(ASIX_CORE:.c=.o)
-# The dispatcher, IOS networking wrappers and game patch scanner favor size
-# to fit USB Ethernet in the fixed kernel region. No linker region is enlarged.
-main.o net.o SlippiNetwork.o SlippiNetworkBroadcast.o Patch.o: CFLAGS += -Os
+# Compile for size: rollback plus USB Ethernet must fit the fixed code region.
+# The PPC game/rollback code retains its own optimization flags.
 asix/%.o: asix/%.c
 	@echo "CC    $<"
-	@$(CC) $(CFLAGS) -std=gnu11 -Os -Iasix/port -Iasix/lwip/src/include $(CPPFLAGS) -c -MMD -MP -MF $(@:.o=.d) -o $@ $<
+	@$(CC) $(CFLAGS) -std=gnu11 -Os -flto -Iasix/port -Iasix/lwip/src/include $(CPPFLAGS) -c -MMD -MP -MF $(@:.o=.d) -o $@ $<
 
 LIBS	:= ../fatfs/libfatfs-arm.a be/libc.a be/libgcc.a
 ZIPFILE	:= ../loader/data/kernel.zip
@@ -62,7 +61,7 @@ OBJECTS	+= lwbt/bte.o lwbt/btmemb.o lwbt/btmemr.o lwbt/btpbuf.o lwbt/hci.o lwbt/
 # ENet 1.3.13 on an IOS platform layer
 SO_SOURCES := $(wildcard slippi_online/*.c) $(wildcard slippi_online/enet/*.c)
 OBJECTS += $(SO_SOURCES:.c=.o)
-SO_CFLAGS := -std=gnu99 -Os -DENET_IOS -Islippi_online/enet/include
+SO_CFLAGS := -std=gnu99 -Os -flto -DENET_IOS -Islippi_online/enet/include
 
 slippi_online/%.o : slippi_online/%.c
 	@echo  "CC	$@"
@@ -73,6 +72,10 @@ OBJECTS += ubj/ubjr.o ubj/ubjrw.o ubj/ubjw.o
 
 # Common configs
 OBJECTS += ../common/config/MeleeCodes_arm.o
+
+# SlippWii: the kernel's code region (kernel.ld: 384 KB, with the online boot codes in it) is full.
+# The Triforce arcade boards' code, which Melee never runs, is built for size, not speed.
+GCAM.o JVSIO.o JVSIOMessage.o TRI.o: CFLAGS += -Os
 
 # When make is invoked with `make SLIPPI_DEBUG=1`: compile SlippiDebug.o and
 # let GCC define SLIPPI_PROFILE as a macro. Use this for some profiling code.

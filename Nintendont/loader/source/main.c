@@ -36,6 +36,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "font.h"
 #include "FPad.h"
 #include "menu.h"
+#include "update.h"
 #include "MemCard.h"
 #include "Patches.h"
 #include "kernel_zip.h"
@@ -519,6 +520,26 @@ int main(int argc, char **argv)
 
 	memset((void*)ncfg, 0, sizeof(NIN_CFG));
 	bool argsboot = false;
+	if(argc > 1 && strncmp(argv[1], "slippwii-menu-test=", 19) == 0)
+	{
+		// tests (menu.h, SlippWiiMenuTest): no settings in the arguments, so the loader's own are read
+		SlippWiiMenuTest = atoi(argv[1] + 19) + 1;
+		argc = 1;
+	}
+	if(argc > 1 && strncmp(argv[1], "slippwii-update-test=", 21) == 0)
+	{
+		// tests (update.h, SlippWii_UpdateTest): the updater by itself, in a test build; then out
+		SlippWiiUpdateTest = strdup(argv[1] + 21);
+		SlippWiiMenuTest = 1;
+		argc = 1;
+	}
+	if(argc > 2 && strncmp(argv[1], "slippwii-update-then-boot=", 26) == 0)
+	{
+		// tests (update.h): the updater by itself first, in a test build; then the game the next argument starts
+		SlippWiiUpdateTest = strdup(argv[1] + 26);
+		argv++;
+		argc--;
+	}
 	if(argc > 1) //every 0x00 gets counted as one arg so just make sure its more than the path and copy
 	{
 		memcpy(ncfg, argv[1], sizeof(NIN_CFG));
@@ -791,6 +812,7 @@ int main(int argc, char **argv)
 		PrintBuildInfo();
 		GRRLIB_Render();
 		ClearScreen();
+		SlippWii_UpdateTest();	// tests, a test build only (update.h): the updater first, then this game
 	}
 
 	// Init DI and set correct ID if needed
