@@ -434,8 +434,10 @@ s32 asix_hw_init(struct netif *n) {
     if(family!=RTL_8152 && family!=AX_172 && family!=AX_178A && family!=AX_772DE &&
        write_control(device,0x14,0,0,n->hwaddr,6,"restore volatile MAC"))return -8;
     queue=mqueue_create(queue_store,2);if(queue<0)return -10;
-    first_rx=heap_alloc_aligned(0,RX_CAPACITY,32);
-    first_tx=heap_alloc_aligned(0,1568,32);
+    if(ConfigGetConfig(NIN_CFG_SW_DIAG_LOG)) {
+        first_rx=heap_alloc_aligned(0,RX_CAPACITY,32);
+        first_tx=heap_alloc_aligned(0,1568,32);
+    }
     return 0;
 }
 void asix_hw_shutdown(void) {
@@ -456,7 +458,7 @@ void asix_hw_boot_log(struct netif *n) {
     char *text=heap_alloc_aligned(0,4096,32);
     if(!text)return;
     int length=_sprintf(text,
-        "SlippWii 1.5.1 USB Ethernet test 5 preflight\r\n"
+        "SlippWii USB Ethernet startup\r\n"
         "ip=%08x mask=%08x gateway=%08x\r\n"
         "MAC=%02x:%02x:%02x:%02x:%02x:%02x\r\n"
         "device=%08x ven=%d queue=%d failed=%d\r\n"
@@ -482,8 +484,8 @@ void asix_hw_boot_log(struct netif *n) {
     for(s32 i=0;i<attached_count && i<32;i++)
         length+=_sprintf(text+length,"USB %d: id=%08x VID:PID=%04x:%04x\r\n",i,attached[i].device_id,attached[i].vid,attached[i].pid);
     boot_file("/slippi_asix_boot.log",text,length);
-    boot_file("/slippi_asix_rx.bin",first_rx?first_rx:control_data,first_rx_n);
-    boot_file("/slippi_asix_tx.bin",first_tx?first_tx:control_data,first_tx_n);
+    if(first_rx)boot_file("/slippi_asix_rx.bin",first_rx,first_rx_n);
+    if(first_tx)boot_file("/slippi_asix_tx.bin",first_tx,first_tx_n);
     if(first_rx){heap_free(0,first_rx);first_rx=NULL;}
     if(first_tx){heap_free(0,first_tx);first_tx=NULL;}
     heap_free(0,text);

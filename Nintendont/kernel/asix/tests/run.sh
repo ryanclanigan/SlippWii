@@ -13,5 +13,8 @@ for test in socket_test hardware_test; do
     "$out" fallback
     "$out" fallback-dhcp
     "$out" fallback-usbfail
+    "$out" quiet-static
+    "$out" quiet-dhcp
+    "$out" quiet-timeout
   fi
 done

@@ -3,6 +3,7 @@
  */
 #include "../asix.c"
 #include "../device_list.h"
+int test_diagnostic_log=1;
 u32 host_ms, current_ip_address, NetworkStarted; s32 top_fd;u8 wifi_mac_address[6];
 static const char *config_text="ip=192.168.137.250\nnetmask=255.255.255.0\ngateway=192.168.137.1\n";
 static struct ipcmessage *mutex_token;
@@ -140,15 +141,22 @@ err_t asix_hw_output(struct netif *n,struct pbuf *p){
 }
 int main(int argc,char **argv){
     if(argc>1) {
+        if(!strncmp(argv[1],"quiet-",6))test_diagnostic_log=0;
+        if(!strcmp(argv[1],"quiet-static")) {
+            assert(ASIXTryInit()==1 && ASIXIsActive() && NetworkStarted && !boot_logs);
+            assert(current_ip_address==lwip_htonl(0xc0a889fa));
+            u32 address;assert(ASIXResolve("quiet.test",&address)==0 && address==lwip_htonl(0xcb007108));
+            puts("PASS quiet static boot: no startup files, working IP and DNS");return 0;
+        }
         int fallback_test=!strncmp(argv[1],"fallback",8);
         missing_config=!fallback_test;
         if(fallback_test)config_text="dhcp=1\nfallback=1\nip=192.168.137.251\nnetmask=255.255.255.0\ngateway=192.168.137.1\ndns=1.1.1.1\n";
-        dhcp_serving=fallback_test?!strcmp(argv[1],"fallback-dhcp"):strcmp(argv[1],"timeout")!=0;
+        dhcp_serving=fallback_test?!strcmp(argv[1],"fallback-dhcp"):(strcmp(argv[1],"timeout") && strcmp(argv[1],"quiet-timeout"));
         hardware_failed=!strcmp(argv[1],"fallback-usbfail");drop_discovers=1;
         address_conflict=!strcmp(argv[1],"conflict");
         s32 result=ASIXTryInit();
         if(fallback_test && !dhcp_serving && !hardware_failed) {
-            assert(result==1 && ASIXIsActive() && NetworkStarted && fallback_used && boot_logs==1);
+            assert(result==1 && ASIXIsActive() && NetworkStarted && fallback_used && boot_logs==(unsigned)test_diagnostic_log);
             assert(current_ip_address==lwip_htonl(0xc0a889fb) && !dhcp_supplied_address(&nic));
             assert(ip4_addr_get_u32(netif_ip4_netmask(&nic))==lwip_htonl(0xffffff00));
             assert(ip4_addr_get_u32(netif_ip4_gw(&nic))==lwip_htonl(0xc0a88901));
@@ -171,7 +179,7 @@ int main(int argc,char **argv){
             puts("PASS fallback boot: static IP/DNS stable, mirroring TCP connects, SlippWii UDP and DNS work");
         } else if(dhcp_serving && !hardware_failed) {
             assert(result==1 && ASIXIsActive() && NetworkStarted && use_dhcp && discovers>=2);
-            assert(current_ip_address==lwip_htonl(0xc0a889fa) && boot_logs==1 && !fallback_used);
+            assert(current_ip_address==lwip_htonl(0xc0a889fa) && boot_logs==(unsigned)test_diagnostic_log && !fallback_used);
             assert(ip4_addr_get_u32(ip_2_ip4(dns_getserver(0)))==lwip_htonl(0xc0a88901));
             assert(!strcmp(ASIXAddressMode(),"dhcp") && ASIXDhcpResult()==0);
             if(!strcmp(argv[1],"conflict")) {assert(declines>0);puts("PASS DHCP boot: conflicting offered address is declined before retrying");}

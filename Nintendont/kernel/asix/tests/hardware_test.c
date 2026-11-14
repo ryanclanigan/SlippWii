@@ -7,6 +7,7 @@
 void test_ack(struct ipcmessage *m,int result);
 #include "../hardware.c"
 #include "lwip/init.h"
+int test_diagnostic_log=1;
 void *asix_lwip_heap;
 const char *ASIXAddressMode(void){return "test";}
 s32 ASIXDhcpResult(void){return 0;}
@@ -17,6 +18,7 @@ static int chip_pid=0x1790,legacy_chipcode,phy_mode,eeprom_board=0xffff;
 static int host_enable=1,link_ready=1,control_failure,alternate,bad_endpoints;
 static int mii_owned,writes_by_request[256],input_frames;static u8 frame_copy[1514];
 static char saved_log[4096];
+static unsigned capture_file_opens;
 #include "rtl_model.h"
 u32 test_read32(u32 a){(void)a;return host_ms*1899;}
 u32 sys_now(void){return host_ms;}
@@ -93,7 +95,7 @@ s32 USB_WriteCtrlMsg(s32 fd,u8 type,u8 req,u16 value,u16 index,u16 n,void *data)
     }
     return control_failure ? -6:n+8;
 }
-int f_open_main_drive(FIL *f,const char *p,int mode){assert(mode==(FA_CREATE_ALWAYS|FA_WRITE));f->pos=!strcmp(p,"/slippi_asix_boot.log");return 0;}
+int f_open_main_drive(FIL *f,const char *p,int mode){assert(mode==(FA_CREATE_ALWAYS|FA_WRITE));f->pos=!strcmp(p,"/slippi_asix_boot.log");if(!f->pos)capture_file_opens++;return 0;}
 int f_write(FIL *f,const void *data,unsigned n,unsigned *written){if(f->pos){assert(n<sizeof(saved_log));memcpy(saved_log,data,n);saved_log[n]=0;}*written=n;return 0;}
 int f_close(FIL *f){(void)f;return 0;}
 static err_t test_input(struct pbuf *p,struct netif *n) {
@@ -199,6 +201,13 @@ int main(void){
     asix_hw_boot_log(&n);
     asix_lwip_heap=calloc(1,MEM_SIZE+4096);assert(asix_lwip_heap);lwip_init();
     family_tests(&n);packet_tests(&n);rtl_tests(&n);
+    asix_hw_boot_log(&n);
+    test_diagnostic_log=0;probed=0;
+    assert(asix_hw_init(&n)==0 && !first_rx && !first_tx);
+    unsigned captures=capture_file_opens;
+    asix_hw_boot_log(&n);
+    assert(capture_file_opens==captures && strstr(saved_log,"RTL8152B"));
+    puts("PASS quiet hardware: no capture buffers/files with Diagnostic Log off; failure-report path still available");
     puts("PASS USB 2.0 families: AX88172/A, AX88772/A/B/C/D/E, AX88178/A; packet splits, malformed RX, TX boundaries, endpoint selection, USB 3 exclusion, MII/link/control failures");
     puts("PASS hardware: absent/unsupported/supported probes, cached enumeration, storage snapshot, negative ID, resume error with valid descriptor, rejected descriptor failure, configuration verification, boot logs");
     return 0;

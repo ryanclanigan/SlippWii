@@ -195,12 +195,12 @@ s32 ASIXInit(void) {
         }
     }
     current_ip_address=ip4_addr_get_u32(netif_ip4_addr(&nic));
-    /* Exercise the actual Starlet data path before game/disc threads start.
-     * Diagnostics are written here so FatFS is not called from socket threads. */
+    /* Keep the verified USB/ARP startup window before game/disc threads start.
+     * Optional captures are written here, never from socket threads. */
     if(!ip4_addr_isany_val(*netif_ip4_gw(&nic)))etharp_request(&nic,netif_ip4_gw(&nic));
     u32 preflight=sys_now();
     while((u32)(sys_now()-preflight)<3000) {pump();mdelay(1);}
-    asix_hw_boot_log(&nic);
+    if(ConfigGetConfig(NIN_CFG_SW_DIAG_LOG))asix_hw_boot_log(&nic);
     top_fd=0;NetworkStarted=1;active=1;
     dbgprintf("ASIX: IP %08x, Slippi TCP 51441\n",current_ip_address);
     return 0;

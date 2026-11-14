@@ -4,8 +4,12 @@
 
 - Added experimental automatic RTL8152B support (0bda:8152, internal silicon
   4c10/4800) alongside ASIX, using the same DHCP/static fallback settings.
-  Drivers and the revision-2 volatile RAM patch are built in. Physical RTL8152B
-  validation is pending; see [USB Ethernet setup](docs/ASIX.md).
+  Drivers and the revision-2 volatile RAM patch are built in. One 4c10 adapter
+  is verified with router DHCP, DNS, Unranked matchmaking and a rollback match;
+  see [USB Ethernet setup](docs/ASIX.md) for remaining coverage limits.
+- USB startup captures follow the existing **Diagnostic Log** setting. Normal
+  successful startup creates no USB diagnostic files; adapter/DHCP failures
+  retain a boot error log. Temporary forced launch logging has been removed.
 
 ## 1.5.1
 

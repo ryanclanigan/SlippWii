@@ -95,7 +95,7 @@ uses DHCP or the optional file above.
 | AX88772B / AX88772C | Legacy header mode, software checksums | Needed |
 | AX88178 | Legacy framing, Marvell or RTL8211CL external PHY | Needed |
 | AX88178A | USB 2.0 gigabit register/framing path | Needed |
-| RTL8152B | Realtek register mode, 24-byte RX / 8-byte TX descriptors | Needed |
+| RTL8152B | Realtek register mode, 24-byte RX / 8-byte TX descriptors | One 4c10 adapter verified with router DHCP, DNS, Unranked matchmaking and a rollback match; 4800 still needs testing |
 | AX88772D / AX88772E | Existing revision-0300 register/framing path | One revision-0300 adapter verified; D vs E is not distinguishable by these IDs |
 
 Detection uses the explicit IDs in [device_list.h](../Nintendont/kernel/asix/device_list.h),
@@ -129,10 +129,12 @@ requires the standard internal Ethernet MAC mode. Gigabit families negotiate
 
 
 The revision-0300 ASIX path was verified in Slippi Nintendont mirroring and
-SlippWii with laptop Internet sharing and static fallback. Other ASIX families
-and the Realtek path remain physically unverified. Router DHCP and online
-game performance need physical validation for the new Realtek path. Hotplug and runtime link renegotiation are
-not implemented.
+SlippWii with laptop Internet sharing and static fallback. One RTL8152B with
+internal silicon 4c10 was verified through router DHCP, DNS, Unranked matchmaking
+and an online rollback match. Other ASIX families and Realtek silicon 4800 remain
+physically unverified. This is individual hardware validation, not a performance
+guarantee for every adapter or network. Hotplug and runtime link renegotiation
+are not implemented.
 
 ## Transport and diagnostics
 
@@ -145,11 +147,16 @@ uses a separate socket. Native IOS behavior is preserved when the custom driver 
 DNS uses lwIP rather than asking IOS to resolve on a different network interface.
 IPv4 fragmentation/reassembly supports SlippWii's existing 1536-byte datagram limit.
 
-Initialization writes slippi_asix_boot.log and initial raw USB captures
-slippi_asix_rx.bin / slippi_asix_tx.bin to the game device root. The log contains
+Successful startup is quiet by default. With the existing **Diagnostic Log**
+setting enabled, initialization writes slippi_asix_boot.log and initial raw USB
+captures slippi_asix_rx.bin / slippi_asix_tx.bin to the game device root.
+Adapter or DHCP initialization failures still write the boot log with the setting off; raw
+capture buffers/files are only enabled by Diagnostic Log. The log contains
 family, revision, Realtek silicon ID, endpoints, negotiated link, address mode, DHCP result/state, DNS
 and I/O results. It does not include
 user.json or account credentials. Empty captures are normal before traffic.
+The normal upstream runtime logging setting is respected. Temporary forced
+launch logging and slippwii_usb_launch.log are not part of regular builds.
 
 USB buffers, the mirror receive buffer, and the lwIP heap are allocated at
 runtime because SlippWii's fixed kernel data region is almost full. The ARM kernel is compiled with -Os; the USB/lwIP and online C objects also
