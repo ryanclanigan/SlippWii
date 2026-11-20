@@ -142,8 +142,11 @@ The hardware implementation is ported from ryanclanigan/Nintendont commit
 098feedb10f08ca44edc7453469b7f39d26c8cfb. It shares one serialized NO_SYS lwIP
 2.2.1 instance between mirroring and online play. SlippWii's receive and sender
 threads use a separate general UDP API with bounded queues and descriptor
-generations. Matchmaking and netplay retain the same session port; the log sink
-uses a separate socket. Native IOS behavior is preserved when the custom driver is inactive.
+generations. Slippi 3.7.0 matchmaking uses a separate outbound TCP stream for
+the upstream TLS/WebSocket client; it is independent of the mirroring listener
+and UDP game session. Native IOS behavior is preserved when the custom driver is inactive.
+The active USB interface reports wired status directly, even if the saved IOS
+connection profile selects Wi-Fi. The Wi-Fi restriction remains for native IOS.
 DNS uses lwIP rather than asking IOS to resolve on a different network interface.
 IPv4 fragmentation/reassembly supports SlippWii's existing 1536-byte datagram limit.
 
@@ -159,12 +162,17 @@ The normal upstream runtime logging setting is respected. Temporary forced
 launch logging and slippwii_usb_launch.log are not part of regular builds.
 
 USB buffers, the mirror receive buffer, and the lwIP heap are allocated at
-runtime because SlippWii's fixed kernel data region is almost full. The ARM kernel is compiled with -Os; the USB/lwIP and online C objects also
-use GCC link-time optimization so the 1.5.1 rollback code and USB drivers fit.
+runtime because SlippWii's fixed kernel data region is almost full. The ARM kernel
+is compiled with -Os. The USB/lwIP C code and printf formatter use ARM/Thumb
+interworking for size; IOS thread entry points stay ARM. Network and online C
+objects use link-time optimization, except the TLS objects whose read-only
+tables the upstream linker script places in code. The platform's unchanged
+8960-byte log ring is allocated on IOS heap 0 before logging becomes active.
 The prefetch thread keeps its 8 KiB stack but allocates it from the existing
 32-byte-aligned online arena, with checked allocation/thread failures.
 The PPC game and rollback engine retain their original build flags. The kernel
-linker regions and thread stack locations are unchanged. All USB/raw-stack
+uses the upstream 1.8.0 layout (448 KiB code, 512 KiB data, stacks at 12ff0000);
+the USB port does not enlarge those regions. All USB/raw-stack
 operations run under one mutex; receive waiters release it while sleeping.
 
 ## Build and checks
@@ -181,6 +189,17 @@ GPL-2.0 driver in [U-Boot v2025.10](https://github.com/u-boot/u-boot/tree/v2025.
 The Realtek port and included RAM patch retain GPL-2.0-only attribution. The
 existing kernel/asix directory and slippi_asix filenames serve both families;
 they are retained for compatibility with existing installations.
+
+The 1.8.0 port includes a nonblocking TCP bridge used by the real upstream
+so_tcp.c worker. Its wire tests cover binary streams, partial reads, EOF/reset,
+descriptor reuse, bounded timeouts, cancellation and send backpressure while
+mirroring, UDP and DNS remain active. The 3.7.0 TCP/TLS matchmaking path still
+needs a Wii run; the earlier hardware validation used SlippWii 1.5.1.
+
+When upgrading from 1.5.1, extract the whole 1.8.0 Wii ZIP, including slippwii/
+with its newer codeset, file links and patch manifest. Replacing boot.dol alone
+does not install the required Slippi 3.7.0 assets. Existing user.json, network
+INI and personal settings are not included in the ZIP and are preserved.
 
 ~~~sh
 cd Nintendont

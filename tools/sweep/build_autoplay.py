@@ -10,7 +10,9 @@ index on the stage select screen, or 255 for whatever is under the cursor).
 For games that reach the timer: "timer_s" seconds in the rounds of the bit mask
 "timer_rounds" (bit 0: the first round), no inputs in those of "idle_rounds", over the
 ledge grab limit in those of "over_limit" (one mask per port), and without
-tools/text_args/ in those of "no_text_fix_rounds".
+tools/text_args/ in those of "no_text_fix_rounds". "mode": the Online Play option the
+bot chooses (3 Teams, 4 Party; Direct without it). "team": in Teams, how often the bot presses
+Slippi's team button (0 stays red, 1 blue, 2 green).
 Both sides need the same values, or they drift apart.
 
 Writes OUT.gecko.txt (Dolphin GameSettings lines) and OUT.c2.bin (the code,
@@ -29,8 +31,9 @@ HERE = Path(__file__).resolve().parent / 'autoplay'
 HOOK = 0x803769FC  # HSD_PadRenewRawStatus entry (mflr r0)
 
 
-def build_blob():
-    return pic_code.build(HERE / 'glue.s', [HERE / 'autoplay.c'], start='.ap_start', tail='.ap_tail')
+def build_blob(small=False):
+    """`small`: built for size, 320 bytes less (it then runs a few instructions longer in each PADRead)."""
+    return pic_code.build(HERE / 'glue.s', [HERE / 'autoplay.c'], start='.ap_start', tail='.ap_tail', size=small)
 
 
 def fill(blob, offset, plan, port, lras_s, seed):
@@ -39,9 +42,11 @@ def fill(blob, offset, plan, port, lras_s, seed):
     data += b''.join(struct.pack('>BB', c, s) for c, s in rounds).ljust(128, b'\0')
     blob[offset:offset + len(data)] = data
     over = plan.get('over_limit', (0, 0))
-    blob[offset + 0xB8:offset + 0xBF] = bytes((plan.get('timer_s', 0), plan.get('timer_rounds', 0),
+    blob[offset + 0xB8:offset + 0xC0] = bytes((plan.get('timer_s', 0), plan.get('timer_rounds', 0),
                                                plan.get('idle_rounds', 0), over[0], over[1],
-                                               plan.get('no_text_fix_rounds', 0), plan.get('person', 0)))
+                                               plan.get('no_text_fix_rounds', 0), plan.get('person', 0),
+                                               plan.get('mode', 0)))
+    blob[offset + 0xC6] = plan.get('team', 0)
 
 
 def c2(code):
@@ -56,9 +61,12 @@ def main():
     ap.add_argument('--plan', required=True)
     ap.add_argument('--port', type=int, default=0)
     ap.add_argument('--out', required=True)
+    ap.add_argument('--small', action='store_true',
+                    help="built for size: the Wii's bot beside the latency probe and the player's engine, which "
+                         "the codes' region no longer held by 156 bytes (2026-11-17)")
     args = ap.parse_args()
     plan = json.loads(Path(args.plan).read_text())
-    blob, syms = build_blob()
+    blob, syms = build_blob(args.small)
     fill(blob, syms['bot_data'], plan, args.port, plan.get('lras_s', 90), plan.get('seed', 1))
     if blob[-4:] != bytes.fromhex('7C0802A6'):
         sys.exit('the code does not end with the replaced instruction (mflr r0)')

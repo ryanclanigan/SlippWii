@@ -21,7 +21,7 @@ with and help improve the project.
 | **Rollback netcode** | Since 1.4.0. The Wii predicts and rolls back the way Slippi Dolphin does, running Slippi's own rollback code. In automated games against Slippi Dolphin through simulated connections, every frame matched the PC's replay. |
 | **Direct** (connect codes) | Works. Tested for many hours against Slippi Dolphin on PC, including automated runs of 75 games whose replays matched frame for frame on both sides. |
 | **Unranked** | Should work (same code path as Direct) but has had little testing. |
-| **Teams** | Untested. |
+| **Teams**, **Party** | Work: four players, as on Slippi Dolphin (Teams by a shared lobby code, Party by its queue). In automated lobbies against three copies of Slippi Dolphin every replay matched, a player leaving in the middle of a game included. With more than one opponent the Wii does not roll back (four characters are more than it can run again each frame): its game waits for every input, and takes more **input delay** the higher the lobby's ping, 2 frames on a very good connection, up to 6. Its opponents play as against anyone. |
 | **Ranked** | **Not available.** Ranked is Slippi's protected competitive mode, so SlippWii leaves it out: it isn't in the Online Play menu. |
 | Input delay | Set on the Wii: the **Delay Frames** − / + buttons on the online character select screen. You can change it while connected to your opponent: it applies from the next game. |
 | Rumble | On or off for online play: the **Rumble** switch on the online character select screen (remembered). |
@@ -34,9 +34,13 @@ How it feels: both sides play with rollback. When your opponent's input is late,
 on with a guess and corrects it when the input arrives, as Slippi Dolphin does. A late packet no
 longer freezes the game, and to your opponent the Wii plays like another PC.
 
-- **Input lag.** At 2 delay frames (Slippi's standard), a button press reaches the middle of a
-  CRT's picture in about 75 ms while your ping is under about 75 ms, and in about 92 ms above that.
-  At 1 delay frame it is about 59 ms, the same as a Wii playing offline, under about 42 ms of ping.
+- **Input lag.** At 1 delay frame a button press reaches the screen exactly when it does on a
+  tournament console (Slippi Nintendont with the polling drift fix), under about 50 ms of ping; 8 ms
+  later up to about 70. At 2 delay frames (Slippi's standard) it is one frame more, up to about
+  85 ms of ping, and 8 ms more again up to about 105. Each game keeps its timing from start to end.
+  Details and a comparison with Slippi on PC: [`docs/INPUT_DELAY.md`](docs/INPUT_DELAY.md).
+- **Input suggestions** (Slippi 3.7.0) work both ways: a PC player's GameCube adapter sends
+  their inputs between frames and the Wii predicts with them, and the Wii sends its own.
 - **High ping.** From about 90 ms of ping the Wii is near its limit: rollback still works, but you
   may see brief hitches.
 - **Memory card.** Rollback needs memory that a very large virtual memory card also uses. With a
@@ -134,6 +138,8 @@ post your SD card's files online.
 
    (Melee's own *Options > Rumble* can't do this online: online, your character can be in another
    port than your controller, and Slippi sends its rumble to your controller.)
+5. When you are done, pick **Exit** at the bottom of the **Online Play** menu and answer **Yes**:
+   the Wii goes back to the Homebrew Channel. You don't have to turn the console off to leave.
 
 To change Nintendont's own settings, press **B** on the game list (**L**/**R** change pages). They
 are saved when you leave the settings or start a game.
@@ -144,6 +150,8 @@ On the *Slippi Settings* page:
 |---|---|
 | **Check for Updates** | Looks for a newer SlippWii and installs it (see *Updating*). |
 | **No Music** | Turns the game's music off, in the menus and in matches. Sound effects stay. |
+| **Quick Chat** | Slippi's quick chat on the online character select screen, with Slippi Dolphin's three choices: **Yes** (every mode), **Direct** (in Direct only) or **No**. Where it is off you send no messages and see none, and whoever writes to you is told chat is off. |
+| **Team Indicators** | In online games your own character's tag says YOU, and in Teams your teammates keep their marker. |
 | **L-Cancel Red Flash** | A character flashes red when it misses an L-cancel. |
 | **No Screen Shake** | The screen does not shake. |
 | **Center 2P HUD** | With two players, the percents sit in the middle of the screen. |
@@ -151,8 +159,9 @@ On the *Slippi Settings* page:
 | **Screen** (under *MELEE CODES*) | Widescreen, online too. |
 | **Diagnostic Log** | Saves SlippWii's log on the SD card for a problem report (see *Reporting problems*). Leave it off otherwise. |
 
-*L-Cancel Red Flash*, *No Screen Shake*, *Center 2P HUD* and *Freeze FD* are Slippi's own optional
-codes, the ones you can turn on in Slippi Dolphin. They and *No Music* work online and offline,
+*L-Cancel Red Flash*, *No Screen Shake*, *Center 2P HUD*, *Freeze FD* and *Team Indicators* are
+Slippi's own optional codes, the ones you can turn on in Slippi Dolphin (*Team Indicators* is its
+"Show Friendly Player Indicators"). They and *No Music* work online and offline,
 change only what your console shows and plays, and your opponent does not need them.
 
 SlippWii has its own app folder, settings file and data folder, so **Slippi Nintendont stays
@@ -166,7 +175,7 @@ On the SD card:
 | `slippwii/user.json` | Your Slippi account (keep it private) |
 | `slippwii/netplay.gct`, `slippwii/files/`, `slippwii/patches/` | Slippi's online code, menu files and patches |
 | `slippwii/config.ini` | Settings (optional) |
-| `slippwii/logs/` | Crash reports, and the diagnostic log when it is on |
+| `slippwii/logs/` | Crash and desync reports, and the diagnostic log when it is on |
 | `slippwii_nincfg.bin` | SlippWii's loader settings (Slippi Nintendont uses `slippi_nincfg.bin`) |
 
 If your games are on a USB drive, SlippWii copies what it needs to `slippwii/` on that drive by itself.
@@ -182,9 +191,16 @@ SlippWii checks everything before Melee starts and explains any problem on the T
 - **Can't connect / stuck searching:** check the LAN adapter's connection test in Wii Settings,
   and that the opponent typed your connect code exactly. Direct needs both players searching for each
   other.
+- **"Online needs a wired LAN adapter (no Wi-Fi)":** the connection the Wii is set to use is a
+  wireless one. In *Wii Settings > Internet > Connection Settings*, pick the wired connection (or
+  set one up) and choose *Use this connection*.
+- **The online modes are locked, and only "Update" can be picked:** Slippi has moved to a version
+  this SlippWii does not speak yet, and Slippi's server no longer takes the old one. Update
+  SlippWii (**Check for Updates**, see *Updating*); if it says there is nothing newer, the SlippWii
+  for the new Slippi version is not out yet.
 - **Black screen after starting SlippWii:** power the Wii off fully (hold the power button), turn it
   on again and start SlippWii from the Homebrew Channel.
-- **Stutters during games:** use the wired adapter (not Wi-Fi) and play opponents in your region:
+- **Stutters during games:** play opponents in your region:
   *Show Ping* shows your ping in a game, and from about 90 ms the Wii has little room left. If it
   stutters at a low ping, send us a log (see *Reporting problems*).
 - **Worse than SlippWii 1.3 was for you?** Tell us, with a log. Until it is fixed you can add the
@@ -201,7 +217,9 @@ opponent's setup. A Slippi replay (`.slp`) from the opponent's side helps with d
 
 **Send the log.** It tells us far more than a description can.
 
-1. If the game **crashed**, there is nothing to turn on: SlippWii saved a crash report by itself.
+1. If the game **crashed** or **desynced**, there is nothing to turn on: SlippWii saved a report
+   by itself. For a desync, a Slippi replay (`.slp`) of the same game from a PC player in it is the
+   other half.
 2. For anything else (stutter, a freeze, a black screen, a disconnect), press **B** on the game list,
    go to the *Slippi Settings* page and set **Diagnostic Log** to **Yes**. Then play until the problem
    happens again. If the console hangs, wait ten seconds before you switch it off.
@@ -220,12 +238,13 @@ Slippi Dolphin runs Slippi's online code inside Melee and acts as Melee's "Slipp
 That device handles matchmaking, the connection to the opponent and the replay stream. SlippWii does
 the same on a real Wii: Slippi Nintendont's kernel (on the Wii's ARM chip) stands in for that device,
 with a network client (matchmaking, ENet peer connection) and the same online code Slippi Dolphin
-3.6.4 runs. See [`docs/HOW_IT_WORKS.md`](docs/HOW_IT_WORKS.md) and the byte-level
+3.7.0 runs. See [`docs/HOW_IT_WORKS.md`](docs/HOW_IT_WORKS.md) and the byte-level
 [`docs/EXI_DEVICE_SPEC.md`](docs/EXI_DEVICE_SPEC.md).
 
 Rollback needs savestates, which Dolphin makes from outside the game. A Wii has no outside, so a
 small engine inside Melee makes them on the Wii's own CPU: it tracks what the game writes each frame
-and copies only that. See [`docs/ROLLBACK.md`](docs/ROLLBACK.md).
+and copies only that. See [`docs/ROLLBACK.md`](docs/ROLLBACK.md). Teams and Party, where the Wii
+waits for inputs instead: [`docs/FOUR_PLAYERS.md`](docs/FOUR_PLAYERS.md).
 
 Building from source: [`docs/BUILDING.md`](docs/BUILDING.md).
 

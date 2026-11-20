@@ -4,6 +4,7 @@
 #include "so_platform.h"
 #include "so_logfile.h"
 #include "so_alloc.h"
+#include "asix/asix.h"
 #include "so_util.h"
 #include "common.h"
 #include "ff_utf8.h"
@@ -119,6 +120,63 @@ out:
 	so_free(views);
 	so_free(v);
 	return res;
+}
+
+int so_net_link(u32 *link, u32 *flags, u8 raw[3])
+{
+	/* The custom USB interface is wired even when IOS's chosen profile is Wi-Fi. */
+	if (ASIXIsActive()) {
+		*link = SO_LINK_WIRED;
+		*flags = SO_CONNECTION_CHOSEN | SO_CONNECTION_WIRED;
+		raw[0] = (u8)*flags;raw[1] = raw[2] = 0;
+		return 3;
+	}
+	static const char ncd_path[] __attribute__((aligned(32))) = "/dev/net/ncd/manage";
+	/* the configuration: 8 bytes, then three connections of 0x91C, each starting with its flags */
+	enum { GET_CONFIG = 0x03, GET_LINK_STATUS = 0x07, CONFIG_SIZE = 0x1B5C, CONNECTION_SIZE = 0x91C };
+	u8 *config = so_malloc(CONFIG_SIZE), *status = so_malloc(32), *result = so_malloc(32);
+	vector *v = so_malloc(2 * sizeof(vector) + 32);
+	int fd = -1, got = 0, i;
+	*link = *flags = 0;
+	memset(raw, 0, 3);
+	if (!config || !status || !result || !v)
+		goto out;
+	fd = IOS_Open(ncd_path, 0);
+	if (fd < 0)
+		goto out;
+	memset(status, 0, 32);
+	memset(result, 0, 32);
+	/* (one vector out: with a second, as the configuration's call has, IOS answers -4) */
+	v[0].data = (u32)status;
+	v[0].len = 32;
+	i = IOS_Ioctlv(fd, GET_LINK_STATUS, 0, 1, v);
+	if (i >= 0) {
+		*link = so_get_u32(status + 4);
+		got |= 1;
+	} else {
+		*link = (u32)i;	/* (IOS's error, for the log) */
+	}
+	memset(config, 0, CONFIG_SIZE);
+	v[0].data = (u32)config;
+	v[0].len = CONFIG_SIZE;
+	v[1].data = (u32)result;
+	v[1].len = 32;
+	if (IOS_Ioctlv(fd, GET_CONFIG, 0, 2, v) >= 0) {
+		for (i = 0; i < 3; i++) {
+			raw[i] = config[8 + i * CONNECTION_SIZE];
+			if ((raw[i] & SO_CONNECTION_CHOSEN) && !(got & 2)) {
+				*flags = raw[i];
+				got |= 2;
+			}
+		}
+	}
+	IOS_Close(fd);
+out:
+	so_free(config);
+	so_free(status);
+	so_free(result);
+	so_free(v);
+	return got;
 }
 
 void so_sleep_us(u32 us)
@@ -263,7 +321,7 @@ s32 so_thread_start(u32 (*entry)(void *), void *arg, void *stack_top, u32 stack_
 #define LOG_LINE_SIZE 160
 
 static struct {
-	char lines[LOG_LINES][LOG_LINE_SIZE];
+	char (*lines)[LOG_LINE_SIZE]; /* allocated on IOS heap 0 before platform_ready */
 	u32 head, tail;	/* head: next write; tail: next read */
 	u32 dropped;
 } log_ring;
@@ -449,6 +507,11 @@ int so_diag_log_setting(void)
 	return ConfigGetConfig(NIN_CFG_SW_DIAG_LOG);
 }
 
+int so_quick_chat_setting(void)
+{
+	return ConfigGetConfig(NIN_CFG_SW_NO_CHAT) ? 0 : ConfigGetConfig(NIN_CFG_SW_CHAT_DIRECT) ? 2 : 1;
+}
+
 char *getMainDrivePath(const char *path);	/* common.c */
 
 u32 SlippWiiOptionalCodes(u8 *out, u32 room, int screen);	/* Patch.c */
@@ -461,16 +524,34 @@ u32 so_optional_codes(u8 *out, u32 room)
 static SoMutex fs_mutex;
 static volatile int fs_lock_ready;
 
+/* (diagnostics: who holds it and who last waited, by the caller's address) */
+static volatile u32 fs_holder, fs_waiter;
+
 void so_fs_lock(void)
 {
-	if (fs_lock_ready)
+	if (fs_lock_ready) {
+		fs_waiter = (u32)__builtin_return_address(0);
 		so_mutex_lock(&fs_mutex);
+		fs_waiter = 0;
+		fs_holder = (u32)__builtin_return_address(0);
+	}
 }
 
 void so_fs_unlock(void)
 {
-	if (fs_lock_ready)
+	if (fs_lock_ready) {
+		fs_holder = 0;
 		so_mutex_unlock(&fs_mutex);
+	}
+}
+
+void so_fs_diag(void)
+{
+	u32 holder = fs_holder;
+	if (holder)
+		so_log("fs lock: held from %08x; waiting %08x", (unsigned)holder, (unsigned)fs_waiter);
+	else
+		so_log("fs lock: free; waiting %08x", (unsigned)fs_waiter);
 }
 
 int so_disc_read(u32 offset, void *buf, u32 len)
@@ -631,6 +712,12 @@ int so_platform_init(void)
 		return 0;
 	if (so_mutex_init(&time_lock) < 0 || so_mutex_init(&launch_lock) < 0 || so_mutex_init(&log_lock) < 0 ||
 	    so_mutex_init(&fs_mutex) < 0)
+		return -1;
+	/* The log exists before the online arena is initialized. Keep its fixed
+	 * 8960-byte capacity without occupying the kernel's full data region. */
+	if (!log_ring.lines)
+		log_ring.lines = heap_alloc_aligned(0, LOG_LINES * LOG_LINE_SIZE, 32);
+	if (!log_ring.lines)
 		return -1;
 	fs_lock_ready = 1;
 	random_state = read32(HW_TIMER) ^ 0x9E3779B9;

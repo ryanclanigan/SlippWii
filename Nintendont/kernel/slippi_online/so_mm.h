@@ -16,6 +16,7 @@
 
 #include "global.h"
 #include "so_config.h"
+#include "so_stun.h"
 
 /* Dolphin's OnlinePlayMode. */
 enum {
@@ -23,6 +24,7 @@ enum {
 	SO_MODE_UNRANKED = 1,
 	SO_MODE_DIRECT = 2,
 	SO_MODE_TEAMS = 3,
+	SO_MODE_PARTY = 4,
 };
 
 #define SO_MAX_PLAYERS 4
@@ -77,6 +79,12 @@ typedef enum {
  * the local UDP port (netplay reuses it). Returns 0, or < 0 (with an error
  * message) when the ENet host cannot be created. */
 int so_mm_start(const SoConfig *config, const SoUser *user, const SoSearch *search, u32 server, u16 port);
+/* The same against the WebSocket service of Slippi Dolphin after 3.6.4
+ * (so_mm_ws.c; config->mm_url names it): `server` is its resolved address,
+ * `stun` what so_stun_discover learned of the session socket, which must be
+ * open on `port`. The functions below then speak for that search. */
+int so_mm_start_ws(const SoConfig *config, const SoUser *user, const SoSearch *search, u32 server, u16 port,
+	const SoStun *stun);
 void so_mm_poll(void);
 /* Leaves the queue and frees the socket. */
 void so_mm_stop(void);
@@ -85,6 +93,9 @@ SoMmState so_mm_state(void);
 /* The error text shown to the player (the server's own text when it sent
  * one), valid in SO_MM_ERROR. */
 const char *so_mm_error(void);
+/* The latest version the server named with its error ("" when it named
+ * none): the server turns a version it no longer supports away with one. */
+const char *so_mm_latest_version(void);
 /* NULL before the first search. */
 const SoMatchResult *so_mm_result(void);
 u16 so_mm_port(void);
@@ -98,12 +109,46 @@ int so_mm_build_ticket(char *out, int size, const SoConfig *config, const SoUser
 
 /* Checks a create-ticket-resp. Returns 0 when the ticket was accepted, or
  * < 0 with `error` set to the text for the player. */
-int so_mm_parse_ticket_reply(const char *text, u32 len, char *error, int error_size);
+int so_mm_parse_ticket_reply(const char *text, u32 len, char *error, int error_size, char *latest_version,
+	int latest_version_size);
 
 /* Parses a get-ticket-resp into `result`. Returns 0, or < 0 with `error`
  * set (the server's text when it sent one; `latest_version` then receives
  * its latestVersion, if any). */
 int so_mm_parse_match(const char *text, u32 len, SoMatchResult *result, char *error, int error_size,
 	char *latest_version, int latest_version_size);
+
+/* ---- the WebSocket service's messages (so_mm_msg.c) ----------------------- */
+
+/* "wss://host[:port]/path" or "ws://..." into its parts (the port the
+ * scheme's own when none is written). Returns 0, or < 0. */
+int so_mm_parse_url(const char *url, int *secure, char *host, int host_size, u16 *port, char *path, int path_size);
+/* The first message on a new connection. `port` is the session socket's;
+ * `lan_address` "a.b.c.d:port" or "". Returns the length, or -1. */
+int so_mm_build_join(char *out, int size, const SoConfig *config, const SoUser *user, const SoSearch *search,
+	const char *lan_address, u16 port, const SoStun *stun);
+/* The first message when taking a ticket up again after a lost connection. */
+int so_mm_build_resume(char *out, int size, const char *ticket_id, const char *token);
+enum { SO_MMWS_MALFORMED, SO_MMWS_OTHER, SO_MMWS_JOINED, SO_MMWS_STATUS, SO_MMWS_MATCH, SO_MMWS_ERROR };
+/* What a message of the service is, by its "type". */
+int so_mm_ws_kind(const char *text, u32 len);
+int so_mm_parse_joined(const char *text, u32 len, char *ticket_id, int ticket_size, char *token, int token_size);
+/* An `error` message: its text for the player, and the latest version when
+ * the service named one ("" otherwise). */
+void so_mm_parse_ws_error(const char *text, u32 len, char *error, int error_size, char *latest_version,
+	int latest_version_size);
+/* A `match` message into `result`: 0, or < 0 with `error` set. */
+int so_mm_parse_match_ws(const char *text, u32 len, SoMatchResult *result, char *error, int error_size);
+
+/* ---- the WebSocket session (so_mm_ws.c; used by so_mm.c only) ------------- */
+
+int so_mmws_start(const SoConfig *config, const SoUser *user, const SoSearch *search, u32 server, u16 port,
+	const SoStun *stun);
+void so_mmws_poll(void);
+void so_mmws_stop(void);
+SoMmState so_mmws_state(void);
+const char *so_mmws_error(void);
+const char *so_mmws_latest_version(void);
+const SoMatchResult *so_mmws_result(void);
 
 #endif

@@ -63,9 +63,10 @@ typedef struct {
 	u8 over_limit[2];	/* 0xBB per port: over the ledge grab limit, near the end of these rounds */
 	u8 no_text_fix_rounds;	/* 0xBD tools/text_args/ taken out of Melee, to show what it prevents */
 	u8 person;		/* 0xBE the stick moves as a person's does (next_frame) */
-	u8 pad_bf;		/* 0xBF */
+	u8 mode;		/* 0xBF the Online Play option to choose: 3 Teams, 4 Party (0: Direct, 2) */
 	s32 played;		/* 0xC0 the game's frames in_game has made inputs for */
 	s8 jx, jy;		/* 0xC4 the stick's unsteadiness this frame */
+	u8 team;		/* 0xC6 (build_autoplay.py) Teams: the team to pick with Slippi's button: 0 red, 1 blue, 2 green */
 } Bot;
 
 #define B_LEFT 0x0001
@@ -87,6 +88,7 @@ void flush_code(u32 address, u32 bytes);
 
 static u32 rd32(u32 a) { return *(volatile u32 *)a; }
 static u8 rd8(u32 a) { return *(volatile u8 *)a; }
+static u16 rd16(u32 a) { return *(volatile u16 *)a; }
 static float rdf(u32 a) { return *(volatile float *)a; }
 
 static int valid_ptr(u32 p)
@@ -152,10 +154,44 @@ static void main_menu(Bot *b, Pad *o)
 		return;
 	}
 	if (b->seed == 0xED && rd8(0x804A04F0) == 8)
-		return;	/* test mode (tools/ppc/hide_ranked.s): stay on the Online Play menu */
+		return;	/* test mode (tools/ppc/online_menu.s): stay on the Online Play menu */
+	if ((b->seed == 0xEB || b->seed == 0xEA) && rd8(0x804A04F0) == 8) {
+		/* test mode (tools/ppc/online_menu.s, exit.s; run_sweep.py --menu-exit): on the Online
+		 * Play menu, the stick down until the cursor is on Exit; A (Slippi's "Are you sure?"
+		 * opens, on No); B (it closes); A again, the stick left (Yes), A: the Wii goes back to
+		 * the Homebrew Channel by itself. Seconds apart, so a recording shows each step.
+		 * Seed 0xEA (--menu-exit update): down to Update (shown when Slippi's server has named
+		 * a newer version) and A, which leaves the same way, with no box. */
+		u32 t = b->scan_t++;
+		u32 want = b->seed == 0xEA ? 7 : 6;
+		if (b->step == 0) {
+			if (t < 240)
+				return;	/* the menu as it opens */
+			if (rd16(0x804A04F2) == want) {
+				b->step = 1;
+				b->scan_t = 0;
+			} else if (t % 40 < 4) {
+				o->sy = -100;
+			}
+			return;
+		}
+		if (t >= 240 && t < 244)
+			o->button = B_A;
+		else if (want == 7)
+			;	/* Update: that A was all */
+		else if (t >= 420 && t < 424)
+			o->button = B_B;
+		else if (t >= 540 && t < 544)
+			o->button = B_A;
+		else if (t >= 700 && t < 704)
+			o->sx = -100;
+		else if (t >= 880 && t < 884)
+			o->button = B_A;
+		return;
+	}
 	if (rd8(0x804A04F0) == 8) {	/* Slippi's Online Play submenu */
 		if (b->scene_polls % 30 == 0)
-			*(volatile u16 *)0x804A04F2 = 2;	/* Direct */
+			*(volatile u16 *)0x804A04F2 = b->mode ? b->mode : 2;	/* Direct, unless the plan names another */
 		if (pulse(b, 30, 15))
 			o->button = B_A;
 	} else if (pulse(b, 40, 20)) {
@@ -178,6 +214,21 @@ static void name_entry(Bot *b, Pad *o)
 		o->button = B_A;
 }
 
+/* The team Slippi's team button stands at: 1 red, 2 blue, 3 green, as the button keeps it in its own
+ * code (InitTeamToggleButton.asm, the C2 at 0x802652F4: a branch, a blrl, the byte) so that it
+ * stays for the session; 0: no such code here. */
+static u32 team_now(void)
+{
+	u32 ins = rd32(0x802652F4), at, v;
+	if (ins >> 26 != 18)
+		return 0;
+	at = 0x802652F4u + (u32)(((s32)(ins << 6) >> 6) & ~3);
+	if (!valid_ptr(at) || rd32(at + 4) != 0x4E800021u)
+		return 0;
+	v = rd8(at + 8);
+	return v >= 1 && v <= 3 ? v : 0;
+}
+
 static void css(Bot *b, Pad *o)
 {
 	if (b->seed == 0xEE) {
@@ -192,8 +243,26 @@ static void css(Bot *b, Pad *o)
 	u8 icon = b->plan_len ? b->plan[b->round % b->plan_len][0] : 0;
 	u32 port = rd8(0x804D6CF0) & 3;
 	u32 cursor = rd32(0x804A0BC0 + (rd8(0x804D6CF5) <= 1 ? 0 : port) * 4);	/* (one hand in a one-player CSS) */
+	/* (and one door, the first, whichever port the controller is in: a bot in port 2 read its own
+	 * port's door, saw nothing picked there, and put its character down and picked it again for good) */
+	u32 door = rd8(0x804D6CF5) <= 1 ? 0 : port;
 	if (b->scene_polls < 40)
 		return;
+	if (b->team && b->step == 0 && valid_ptr(cursor) && team_now() && team_now() != (u32)b->team + 1) {
+		/* Slippi's team button (its InitTeamToggleButton.asm: the hand within x -23.5..-17.5,
+		 * y -5..-2.5, and A pressed that frame, is the next team: red, blue, green), pressed
+		 * until the button itself says the team. (Not a count of presses: on a Wii the polls
+		 * go on while the CSS loads, and presses counted by them were made before the screen
+		 * was there: its bot stayed red in every lobby of 2026-11-14, seen on the capture.)
+		 * All players on one team is the other case: the teams are then drawn. As bit
+		 * patterns: this code has no constants of its own. */
+		u32 t = b->scene_polls % 30;
+		*(volatile u32 *)(cursor + 0x0C) = 0xC1A40000u;	/* -20.5 */
+		*(volatile u32 *)(cursor + 0x10) = 0xC0700000u;	/* -3.75 */
+		if (t >= 10 && t < 12)
+			o->button = B_A;
+		return;
+	}
 	if (b->step == 0 && valid_ptr(cursor)) {
 		u32 e = 0x803F0B24u + icon * 0x1C;
 		float x = (rdf(e + 0x0C) + rdf(e + 0x10)) * b->half;
@@ -207,7 +276,7 @@ static void css(Bot *b, Pad *o)
 	if (b->step == 1) {
 		/* A character already picked (r13 - 0x49A9) must be put down (B)
 		 * before another can be (A); B with none picked would leave. */
-		u8 picked = rd8(0x803F0DFC + port * 0x24 + 0x0E);
+		u8 picked = rd8(0x803F0DFC + door * 0x24 + 0x0E);
 		if (b->hold == 0 && rd8(0x804D6CF7) && picked != icon)
 			b->hold = 100;
 		if (b->hold >= 100 && b->hold < 102)
@@ -223,7 +292,7 @@ static void css(Bot *b, Pad *o)
 	if (b->step == 2) {
 		/* Lock in only once the planned character is the one picked
 		 * (door sel_icon at 0x803F0DFC + 0x24 * port + 0x0E); else again. */
-		u8 picked = rd8(0x803F0DFC + port * 0x24 + 0x0E);
+		u8 picked = rd8(0x803F0DFC + door * 0x24 + 0x0E);
 		b->last = (u32)picked << 24 | (u32)icon << 16 | port << 8 | b->round;
 		/* (the door shows a hovered character too: without the picked flag, an A that
 		 * missed left the bot pressing START on the CSS for good: 3 sweeps, 2026-11-08) */
@@ -263,18 +332,22 @@ static void sss(Bot *b, Pad *o)
 {
 	/* stage icons: 0x803F06D0, 0x1C each, JObj first; 30 icons */
 	u8 target = b->plan_len ? b->plan[b->round % b->plan_len][1] : 24;
-	u8 hovered = rd8(0x804D6CAE);
+	u8 hovered = rd8(0x804D6CAE), frozen = target & 0x40;	/* (0x40: Z on it first, Slippi's frozen Stadium) */
 	u32 icon;
+	target &= 0x3F;
 	if (target >= 30)
 		target = 24;	/* Battlefield */
 	if (b->scene_polls < 90)
 		return;	/* the icons slide in first: placing the cursor during it misses */
 	if (hovered == target) {
-		/* settled on it (several polls running): A */
-		if (++b->hold > 8 && b->hold < 11)
+		/* settled on it (several polls running): A; Z once before it for a frozen Stadium (its
+		 * cycle then starts again past the Z: a second would unfreeze it) */
+		if (++b->hold == 4 && frozen)
+			o->button = B_Z;
+		if (b->hold > 8 && b->hold < 11)
 			o->button = B_A;
 		if (b->hold > 40)
-			b->hold = 0;
+			b->hold = frozen ? 5 : 0;
 		return;
 	}
 	b->hold = 0;

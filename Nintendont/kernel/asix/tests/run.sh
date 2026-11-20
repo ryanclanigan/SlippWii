@@ -16,5 +16,6 @@ for test in socket_test hardware_test; do
     "$out" quiet-static
     "$out" quiet-dhcp
     "$out" quiet-timeout
+    "$out" tcp-client
   fi
 done

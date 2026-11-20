@@ -6,6 +6,7 @@
 #include "so_client.h"
 #include "so_exi.h"
 #include "so_platform.h"
+#include "so_prefetch.h"
 #include "so_socket.h"
 #include "so_util.h"
 #include "string.h"
@@ -26,17 +27,29 @@ static char text[32];
 
 #define HUNG_S 10
 #define STUCK_S 10
+
+void DIDiag(void);	/* DI.c */
+/* A game that has stopped with its interrupts going on: what the kernel holds that it could be waiting
+ * for. (Not the game's own memory: its newest writes are in the PPC's cache, and what the kernel reads
+ * of its threads is seconds old. tools/ppc/stall.s, with --stall-all, says where the game is.) */
+void so_diag_where(void)
+{
+	DIDiag();
+	so_fs_diag();
+	so_pf_diag();
+}
 #define SILENT_S 3
 #define BOOT_HUNG_S 45
 void so_patch_check_codes(void);	/* Patch.c */
 static int test_control;
+static u8 exit_asked;	/* so_diag_request_exit: the kernel starts the Homebrew Channel itself */
 
 /* Checks the heap's free-space pattern once a second (so_alloc.h); in tests,
- * every 10 s, the exit word and the PPC's retrace count (test_exit.s) as the
+ * every 10 s, the exit word and the PPC's retrace count (exit.s) as the
  * kernel sees them. */
 static u32 WatchThread(void *unused)
 {
-	u32 n = 0, retraces = 0, still = 0, booting = 0, polls = 0, stuck = 0, received = 0, silent = 0;
+	u32 n = 0, retraces = 0, still = 0, booting = 0, polls = 0, stuck = 0, received = 0, silent = 0, versus = 0;
 	/* (this word outlives a reboot: last run's count, standing still until the game's first
 	 * retrace, would look like a hung PowerPC if the game takes over 10 s to get there) */
 	if (test_control)
@@ -64,6 +77,15 @@ static u32 WatchThread(void *unused)
 					(unsigned)(so_ppc_word((0x003F0DFC + port * 0x24 + 0x0E) & ~3u) >> (8 * (3 - ((0x0E + port * 0x24) & 3))) & 0xFF),
 					(unsigned)so_ppc_word(0x004C1FAC), (unsigned)so_ppc_word(0x004C1FAC + 0x44),
 					(unsigned)so_ppc_word(0x004C1FAC + 0x88), (unsigned)so_ppc_word(0x004C1FAC + 0xCC));
+				/* The versus screen lasts 140 frames. A lobby of four sat on it for good while its three
+				 * PCs waited at READY (run 20261114-220434): what the kernel's side of a disc read is
+				 * doing, the second time it is seen here. */
+				if ((so_ppc_word(0x00479D30) & 0xFF0000FF) == 0x08000004) {
+					if (++versus >= 2)
+						so_diag_where();
+				} else {
+					versus = 0;
+				}
 			}
 		}
 		/* A game whose own thread has stopped while its interrupts go on counts retraces all the
@@ -78,6 +100,7 @@ static u32 WatchThread(void *unused)
 			} else if (++stuck == STUCK_S) {
 				so_log("diag: GAME STUCK: no poll for %u s in a match, retraces going on (%u)", (unsigned)STUCK_S,
 					(unsigned)so_ppc_word(SO_TEST_RETRACES));
+				so_diag_where();
 				so_exi_report_last();
 				so_diag_launch_loader();
 			}
@@ -139,31 +162,46 @@ void so_diag_exit_watch(void)
 			step = so_ppc_word(SO_EXIT_STEP);
 			so_log("exit: the PPC's step %u", (unsigned)step);
 		}
+		/* SlippWii's own exit (tools/ppc/exit_to_loader.inc) stops at step 1 and
+		 * waits for the kernel: no reason to wait here. Nintendont's (a USB
+		 * controller's exit buttons) goes on by itself: its steps, for 10 s. */
+		if (step == 1 || (exit_asked && t >= 20))
+			break;
 		so_sleep_us(100000);
 	}
 }
 
 void so_diag_launch_loader(void)
 {
-	/* the Homebrew Channel: LULZ (1.1 on), JODI, HAXX (older) */
-	static const u32 titles[] = { 0x4C554C5A, 0x4A4F4449, 0x48415858 };
+	/* the Homebrew Channel: LULZ (1.1 on), OHBC (the Open Homebrew Channel), JODI, HAXX
+	 * (older); and, with none of them on the console, the Wii Menu */
+	static const u64 titles[] = {
+		0x000100014C554C5AULL, 0x000100014F484243ULL, 0x000100014A4F4449ULL, 0x0001000148415858ULL,
+		0x0000000100000002ULL,
+	};
 	unsigned i;
-	if (!test_control)
-		return;
-	so_log("exit: the PPC did not reload IOS; launching the Homebrew Channel");
+	if (!test_control && !exit_asked)
+		return;	/* (an exit of Nintendont's own: its reload stub's to finish) */
+	so_log("exit: starting the Homebrew Channel");
 	for (i = 0; i < sizeof(titles) / sizeof(titles[0]); i++) {
 		int res;
 		so_client_flush_logs();
-		res = so_launch_title(0x0001000100000000ULL | titles[i]);
+		res = so_launch_title(titles[i]);	/* restarts the console, if it works */
 		so_log("exit: launching %08x: %d", (unsigned)titles[i], res);
 	}
 	so_client_flush_logs();
 }
 
+void so_diag_request_exit(const char *who)
+{
+	exit_asked = 1;
+	so_set_ppc_word(SO_TEST_EXIT_WORD, SO_TEST_EXIT);
+	so_log("exit: %s asked to go back to the Homebrew Channel", who);
+}
+
 static void request_exit(void)
 {
-	so_set_ppc_word(SO_TEST_EXIT_WORD, SO_TEST_EXIT);
-	so_log("diag: the PC asked to go back to the Homebrew Channel");
+	so_diag_request_exit("the PC");
 }
 
 void so_diag_start(const SoConfig *config)

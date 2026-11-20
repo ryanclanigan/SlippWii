@@ -27,6 +27,10 @@ static void load_rumble(void);
 static void save_rumble(void);
 static void load_ping_display(void);
 static void save_ping_display(void);
+static void load_latest_version(void);
+static void save_latest_version(void);
+static void note_latest_version(const char *version);
+static int on_wifi(int quiet);
 
 extern char __slippi_online_stack_addr, __slippi_online_stack_size;
 
@@ -55,6 +59,11 @@ static struct {
 	int main_priority;	/* as last set (SO_MAIN_THREAD_PRIORITY at start) */
 	u64 sender_checked_us;
 	u8 game_asked;	/* the game has asked for a match: boot is over */
+	/* the newest version Slippi's server has named (SO_LATEST_VERSION_PATH),
+	 * and whether it is over this build's */
+	char latest[24];
+	u8 latest_dirty;
+	u8 outdated;
 } c;
 
 static const char *const state_names[] = {
@@ -84,6 +93,20 @@ static QueuedPad *pad_queue;	/* on the online heap (the kernel's bss is full) */
 static volatile u32 pad_head, pad_tail;
 static u32 pad_latency_max;
 static u32 pad_send_sum, pad_send_n, pad_send_max;	/* so_np_send_pad's time, us */
+
+/* (3.7.0) An input suggestion (so_exi.c), through the same queue: its target frame in `frame`, its
+ * seq in `checksum`, its inputs in `pad`. */
+void so_client_queue_suggestion(const SoLocalPad *s)
+{
+	u32 h = pad_head;
+	if (!pad_queue || h - pad_tail >= PAD_QUEUE)
+		return;
+	pad_queue[h % PAD_QUEUE].has_pad = 2;
+	pad_queue[h % PAD_QUEUE].pad = *s;
+	pad_queue[h % PAD_QUEUE].queued_us = so_time_us();
+	pad_head = h + 1;
+	so_event_signal(&c.wake);
+}
 
 void so_client_queue_pad(const SoLocalPad *pad)
 {
@@ -142,7 +165,11 @@ static void send_queued_pads(void)
 		if (so_np_status() == SO_NP_CONNECTED) {
 			u64 t0 = so_time_us();
 			u32 took;
-			so_np_send_pad(pad_queue[t % PAD_QUEUE].has_pad ? &pad_queue[t % PAD_QUEUE].pad : NULL);
+			if (pad_queue[t % PAD_QUEUE].has_pad == 2)
+				so_np_send_suggestion(pad_queue[t % PAD_QUEUE].pad.frame, pad_queue[t % PAD_QUEUE].pad.checksum,
+					pad_queue[t % PAD_QUEUE].pad.pad);
+			else
+				so_np_send_pad(pad_queue[t % PAD_QUEUE].has_pad ? &pad_queue[t % PAD_QUEUE].pad : NULL);
 			took = (u32)(so_time_us() - t0);
 			pad_send_sum += took;
 			pad_send_n++;
@@ -217,20 +244,55 @@ static int open_session_socket(void)
  * while the server's name resolves, since DNS blocks. */
 static void begin_search(void)
 {
-	char host[sizeof(c.config.mm_host)];
-	u32 server;
-	int res;
+	char host[sizeof(c.config.mm_url)], path[sizeof(c.config.mm_url)], stun_hosts[sizeof(c.config.stun_hosts)];
+	SoStun stun;
+	u32 server = c.config.test_mm_addr;
+	u16 url_port;
+	int res, secure, ws = c.config.mm_url[0] != 0;
 
 	c.searches++;
+	memset(&stun, 0, sizeof(stun));
 	strlcpy(host, c.config.mm_host, sizeof(host));
+	strlcpy(stun_hosts, c.config.stun_hosts, sizeof(stun_hosts));
+	if (ws) {
+		/* Slippi's WebSocket service (so_mm_ws.c): it never sees the session's
+		 * UDP socket, so that is opened first and STUN servers are asked where
+		 * opponents can reach it. */
+		if (so_mm_parse_url(c.config.mm_url, &secure, host, sizeof(host), &url_port, path, sizeof(path)) < 0) {
+			so_log("client: mm_url is not a ws:// or wss:// address");
+			set_error("Failed to create mm client");
+			return;
+		}
+		if (open_session_socket() < 0) {
+			set_error("Failed to create mm client");
+			return;
+		}
+		so_socket_flush();
+	}
 	SO_TRACE(SO_THREAD_NET);
 	SO_STEP("mm resolve");
 	so_mutex_unlock(&c.lock);
-	res = so_resolve(host, &server);
+	/* Wired only: over Wi-Fi an IOS send takes 13-18 ms, and the opponent gets
+	 * every input late (so_socket.h). */
+	res = on_wifi(0) ? -100 : ws && server ? 0 : so_resolve(host, &server);
+	if (ws && res == 0) {
+		int answers = so_stun_discover(stun_hosts, &stun, (volatile u8 *)&c.cancel_requested);
+		char seen[16];
+		so_format_ipv4(stun.addr[0], seen, sizeof(seen));
+		if (answers)
+			so_log_private("client: STUN: %d answers, the socket is seen at %s:%u (NAT %s)", answers, seen,
+				(unsigned)stun.port[0], so_stun_nat_type(&stun));
+		else
+			so_log("client: STUN lookup failed, the service will use the address it observes");
+	}
 	so_mutex_lock(&c.lock);
 	SO_TRACE(SO_THREAD_NET);
 	if (c.cancel_requested || c.search_requested)
 		return;	/* superseded while resolving */
+	if (res == -100) {
+		set_error("Online needs a wired LAN adapter (no Wi-Fi)");
+		return;
+	}
 	if (res < 0) {
 		so_log("client: could not resolve %s (%d)", host, res);
 		set_error("Could not reach the Slippi server");
@@ -243,7 +305,8 @@ static void begin_search(void)
 		return;
 	}
 	SO_TRACE(SO_THREAD_NET);
-	if (so_mm_start(&c.config, &c.user, &c.search, server, c.port) < 0) {
+	if ((ws ? so_mm_start_ws(&c.config, &c.user, &c.search, server, c.port, &stun) :
+			so_mm_start(&c.config, &c.user, &c.search, server, c.port)) < 0) {
 		set_error(so_mm_error());
 		return;
 	}
@@ -257,6 +320,7 @@ static void step(void)
 	case SO_CLIENT_SEARCHING:
 		so_mm_poll();
 		if (so_mm_state() == SO_MM_ERROR) {
+			note_latest_version(so_mm_latest_version());
 			set_error(so_mm_error());
 		} else if (so_mm_state() == SO_MM_MATCHED) {
 			c.match = *so_mm_result();
@@ -392,6 +456,8 @@ static void logfile_tick(int now_anyway)
 			polled = 0;
 		}
 	}
+	so_exi_desync_service();
+	so_exi_start_watch();
 	so_logfile_service(age < 300, now_anyway);
 }
 
@@ -474,6 +540,7 @@ static u32 NetworkThread(void *unused)
 		save_delay();
 		save_rumble();
 		save_ping_display();
+		save_latest_version();
 		logfile_tick(0);
 	}
 	return 0;
@@ -503,17 +570,22 @@ int so_client_init(void)
 	c.init_ms = so_time_ms();
 	SO_PHASE("init config");
 	res = so_config_load(&c.config, &c.user);
+	if (c.config.chat == 1)
+		c.config.chat = (u8)so_quick_chat_setting();	/* (the loader's setting; config.ini's chat= stands if it is not 1) */
 	so_logfile_init(so_diag_log_setting());	/* (lines before this are in no file: the heap's and the config's) */
 	load_delay();
 	load_rumble();
 	load_ping_display();
+	load_latest_version();
 	so_step_pause_us = (u32)c.config.diag_step_pause_ms * 1000;
 	so_diag_start(&c.config);
 	if (so_config_is_real_mm(&c.config))
-		so_log("client: matchmaking %s:%u, app version %s, delay %u", c.config.mm_host,
-			(unsigned)c.config.mm_port, c.config.app_version, (unsigned)c.config.delay);
+		so_log("client: matchmaking %s:%u, app version %s, delay %u, chat %u", c.config.mm_host,
+			(unsigned)c.config.mm_port, c.config.app_version, (unsigned)c.config.delay, (unsigned)c.config.chat);
 	else
-		so_log("client: TEST matchmaking server %s:%u", c.config.mm_host, (unsigned)c.config.mm_port);
+		so_log("client: TEST matchmaking server %s:%u, chat %u", c.config.mm_host, (unsigned)c.config.mm_port,
+			(unsigned)c.config.chat);
+	on_wifi(0);	/* (for the log: a search asks again) */
 
 	SO_PHASE("init threads");
 	if (so_thread_start(NetworkThread, NULL, &__slippi_online_stack_addr, (u32)(size_t)&__slippi_online_stack_size,
@@ -670,6 +742,90 @@ const SoUser *so_client_user(void)
 	return &c.user;
 }
 
+/* ---- Slippi's version ----------------------------------------------------
+ * Slippi's matchmaking turns away a version it no longer supports, naming
+ * its latest. Slippi Dolphin keeps that and locks its online modes until it
+ * is updated; so does this, in a file of its own (user.json holds the play
+ * key, and is never written). user.json's own latestVersion is not gone by:
+ * it is as old as the day the file was copied to the card. */
+
+/* A test server's goes to a file of its own, and is read back only when a
+ * test asks: a real console's never comes from a test. */
+static const char *latest_version_path(void)
+{
+	return so_config_is_real_mm(&c.config) ? SO_LATEST_VERSION_PATH : "/slippwii/test-slippi-version.txt";
+}
+
+static void set_latest_version(const char *version)
+{
+	strlcpy(c.latest, version, sizeof(c.latest));
+	c.outdated = so_version_cmp(c.latest, c.config.app_version) > 0;
+	if (c.outdated)
+		so_log("client: Slippi is at version %s and this SlippWii speaks %s: online is locked until SlippWii is updated",
+			c.latest, c.config.app_version);
+}
+
+static void load_latest_version(void)
+{
+	char text[sizeof(c.latest)];
+	int n, i;
+	if (!so_config_is_real_mm(&c.config) && !c.config.test_latest_keep)
+		return;
+	n = so_read_file(latest_version_path(), text, sizeof(text) - 1);
+	if (n <= 0)
+		return;
+	text[n] = 0;
+	for (i = 0; i < n; i++)
+		if (text[i] == '\r' || text[i] == '\n')
+			text[i] = 0;
+	set_latest_version(text);
+}
+
+static void note_latest_version(const char *version)
+{
+	if (!version[0] || so_version_cmp(version, c.latest) <= 0)
+		return;
+	set_latest_version(version);
+	c.latest_dirty = 1;
+}
+
+static void save_latest_version(void)
+{
+	char text[sizeof(c.latest) + 2];
+	if (!c.latest_dirty)
+		return;
+	c.latest_dirty = 0;
+	if (so_write_file(latest_version_path(), text, (u32)so_snprintf(text, sizeof(text), "%s\n", c.latest)) < 0)
+		so_log("client: could not save Slippi's version");
+}
+
+int so_client_outdated(void)
+{
+	return c.outdated;
+}
+
+/* ---- wired only ------------------------------------------------------------
+ * 1 when the console's network is its Wi-Fi: the connection chosen in the
+ * Wii's settings is a wireless one, and the link does not say wired either.
+ * Where IOS gives only one of the two, that one decides; where it gives
+ * neither, nothing is refused. A line in the log each time (at start-up,
+ * which the card's log has, and at each search). */
+static int on_wifi(int quiet)
+{
+	u32 link, flags;
+	u8 raw[3];
+	int got = so_net_link(&link, &flags, raw), wifi = so_net_is_wifi(got, link, flags);
+	if (c.config.test_wifi)
+		wifi = 1;
+	if (!quiet) {
+		so_log("client: network: %s (link %d, connections %02x %02x %02x%s)", wifi ? "Wi-Fi: online is refused" :
+			((got & 2) && (flags & SO_CONNECTION_WIRED)) || ((got & 1) && link == SO_LINK_WIRED) ? "wired" :
+			got ? "not Wi-Fi" : "unknown", (int)link, raw[0], raw[1], raw[2],
+			c.config.test_wifi ? "; a test's Wi-Fi" : "");
+	}
+	return wifi;
+}
+
 void so_client_find_match(const SoSearch *search)
 {
 	so_mutex_lock(&c.lock);
@@ -677,11 +833,17 @@ void so_client_find_match(const SoSearch *search)
 	if (c.state != SO_CLIENT_OFF && search->mode == SO_MODE_RANKED) {
 		/* SlippWii does not play Ranked (Slippi's protected mode; its set
 		 * rules and reporting are not implemented). The menu hides it
-		 * (tools/ppc/hide_ranked.s); this is the backstop. */
+		 * (tools/ppc/online_menu.s); this is the backstop. */
 		so_log("client: Ranked is not available on SlippWii");
 		c.cancel_requested = 1;
 		c.search_requested = 0;
 		set_error("Ranked is not available on SlippWii");
+	} else if (c.state != SO_CLIENT_OFF && c.outdated) {
+		/* (the menu locks the online modes, 0xB9: this is the backstop, and the
+		 * search during which the server said so) */
+		c.cancel_requested = 1;
+		c.search_requested = 0;
+		set_error("Update SlippWii to play online again");
 	} else if (c.state != SO_CLIENT_OFF) {
 		c.search = *search;
 		c.search_requested = 1;

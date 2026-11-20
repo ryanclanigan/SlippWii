@@ -2,6 +2,10 @@
 
 ## Unreleased (USB Ethernet fork)
 
+- Merged SlippWii 1.8.0 and routed its Slippi 3.7.0 TLS/WebSocket matchmaking
+  TCP stream through the custom USB driver, independently of mirroring/UDP.
+  Custom USB networking is recognized as wired without consulting an unrelated
+  saved IOS Wi-Fi profile. The new matchmaking path needs physical validation.
 - Added experimental automatic RTL8152B support (0bda:8152, internal silicon
   4c10/4800) alongside ASIX, using the same DHCP/static fallback settings.
   Drivers and the revision-2 volatile RAM patch are built in. One 4c10 adapter
@@ -10,6 +14,94 @@
 - USB startup captures follow the existing **Diagnostic Log** setting. Normal
   successful startup creates no USB diagnostic files; adapter/DHCP failures
   retain a boot error log. Temporary forced launch logging has been removed.
+
+## 1.8.0
+
+- **1 delay frame is now exactly a tournament console's input delay.** A SlippWii game at 1 delay
+  frame shows your press on screen when a Wii running Slippi Nintendont with the polling drift fix
+  does (about 50 ms), up to about 50 ms of ping. Earlier versions could read the controller a
+  fraction of a millisecond too early in some games and add 8 ms of lag that came and went.
+  [docs/INPUT_DELAY.md](docs/INPUT_DELAY.md) compares the delay with consoles and Slippi on PC.
+- **Steadier timing on slower connections.** When a connection is too heavy for the console's
+  timing, a game now starts one step back (8 ms more) instead of a whole frame, and keeps the same
+  timing through the game: at most one change, never back and forth. Up to about 70 ms of ping at
+  1 delay frame and 105 ms at 2.
+- **Input suggestions, both ways** (Slippi 3.7.0). A PC player with a GameCube adapter sends their
+  inputs between frames, and SlippWii now predicts with them, as Slippi Dolphin does. SlippWii
+  sends its own too: the console reads the controller twice a frame, and the newer reading goes out
+  early, so a PC player facing a Wii gets the same benefit as against another PC.
+- **Check for Updates tries again by itself** when the connection drops, and carries on where the
+  download broke off. Errors are shown in full.
+
+## 1.7.0
+
+- **Slippi 3.7.0.** Slippi released version 3.7.0 on 2026-11-17, and from then on its matchmaking
+  turns every older version away: SlippWii 1.6.1 and earlier show only *Exit* and *Update* on the
+  Online Play menu. 1.7.0 speaks 3.7.0: its new, encrypted matchmaking, its netplay, its game
+  code and its game files (two of them are now made on the Wii from your own disc, at the first
+  start after the update). Update from the SlippWii menu with *Check for Updates*, or put the new
+  zip on the card. Tested against Slippi Dolphin 3.7.0 with one opponent, in Teams and in Party:
+  every replay the same as Dolphin's ([docs/NEXT_SLIPPI.md](docs/NEXT_SLIPPI.md)).
+- **Party as Slippi has it now**: a stock game (4 stocks, 8 minutes) that starts with two or three
+  players when no more are found, and that you can leave with L+R+A+Start; when a player leaves or
+  is lost, the others play on.
+- **Teams and Party while a PC mirrors the console** (Slippi Launcher's console mirroring): the
+  replay stream to the PC now goes out in pieces of a tenth of a second in these games. A send
+  every frame beside three opponents' made the game wait for inputs, and on the heaviest stage
+  could lose every connection.
+- A quick chat message is taken only from a player who is in the game, as Slippi Dolphin 3.7.0
+  checks it.
+- Not in this version: Slippi's new input suggestions (a Wii neither sends nor uses them, which
+  3.7.0 allows for), and Ranked.
+
+## 1.6.1
+
+- **A desync leaves a report on the card.** When a game goes out of step with an opponent's,
+  SlippWii now saves `slippwii/logs/desync-N.txt` by itself, as it does a crash's report: what the
+  game was (mode, stage, each port's character, colour and team, the delay), what each player
+  chose, the connections, the frame where the game's checksum first differed and from whom, and the
+  inputs the Wii had from each opponent just before it. Nothing to turn on first. With a replay of
+  the same game from a PC player in it, that says what went wrong. A game that never starts after
+  everyone has picked leaves the same report.
+- **Quick Chat**, a setting on the *Slippi Settings* page with Slippi Dolphin's three choices:
+  *Yes* (every mode), *Direct* (in Direct only) or *No*. Where it is off you send no quick chat
+  messages and see none, and whoever writes to you is told chat is off. (It was a line in
+  `config.ini` before, which still works.)
+- **Team Indicators**, a switch on the same page: Slippi Dolphin's optional code "Show Friendly
+  Player Indicators". In online games your own character's tag says YOU, and in Teams your
+  teammates keep their marker.
+- The *Slippi Networking* row is gone from that page: it was always *Yes* in SlippWii and could not
+  be changed.
+- Building: a second place of the loader's start-up hang is avoided (a black screen right after
+  SlippWii is started; `tools/build.sh`). No released version had it.
+
+## 1.6.0
+
+- **Teams and Party work.** A Teams game used to go out of step at once: the Wii set up a
+  free-for-all while its three opponents set up teams, and it could not send to three opponents fast
+  enough. Now both modes play as on Slippi Dolphin, with a Wii in any of the four places and with a
+  player leaving in the middle of a game. With more than one opponent the Wii's game does not roll
+  back: four characters are more than a Wii can run again each frame (measured: a game at 86% of its
+  speed). It waits for every input instead, as SlippWii did before 1.4.0, and gives the inputs the
+  time to arrive by a higher input delay: 2 frames under about 27 ms of ping, 3 under 60 ms, 4 under
+  93 ms, 5 under 127 ms, 6 beyond, or your own setting if that is higher. Only the Wii's player
+  feels that delay. One-on-one play is as it was: rollback, at the delay you set.
+- A game no longer freezes for good at a loading screen after the console was kept from its disc
+  for over 10 seconds (Melee's disc library then gave the drive up; seen only in tests, under four
+  players' network traffic with a replay stream on top).
+- **Exit**, at the bottom of the Online Play menu: back to the Homebrew Channel without turning
+  the Wii off. Pick it and answer *Yes*. (The first start after this update takes a little longer
+  once: the menu files are made again.)
+- **Wired only, enforced.** SlippWii no longer searches for an opponent when the Wii is set to use
+  a wireless connection: the game says "Online needs a wired LAN adapter (no Wi-Fi)". Wi-Fi was
+  never supported, and an opponent of a Wii on Wi-Fi got every input late.
+- **Slippi updates are respected.** SlippWii reports the Slippi version it speaks, and that can no
+  longer be changed in `config.ini`. When Slippi's server stops taking that version, the game locks
+  its online modes ("update required", as Slippi Dolphin does) until a SlippWii for the new
+  version is installed. The menu then offers *Update* and *Exit*: both go back to the Homebrew
+  Channel, where *Check for Updates* is.
+- The diagnostic log says how Slippi's own match quality rule would have judged each game (the
+  rule Slippi's development version ends a Ranked match by). Nothing is ended by it.
 
 ## 1.5.1
 

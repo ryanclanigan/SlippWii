@@ -47,11 +47,14 @@ ASIX_CORE := $(wildcard asix/lwip/src/core/*.c) $(wildcard asix/lwip/src/core/ip
 OBJECTS += asix/asix.o asix/hardware.o $(ASIX_CORE:.c=.o)
 # Compile for size: rollback plus USB Ethernet must fit the fixed code region.
 # The PPC game/rollback code retains its own optimization flags.
+# Pure C helpers use ARM/Thumb interworking; IOS thread entry points stay ARM.
+vsprintf.o: CFLAGS += -mthumb
 asix/%.o: asix/%.c
 	@echo "CC    $<"
-	@$(CC) $(CFLAGS) -std=gnu11 -Os -flto -Iasix/port -Iasix/lwip/src/include $(CPPFLAGS) -c -MMD -MP -MF $(@:.o=.d) -o $@ $<
+	@$(CC) $(CFLAGS) -std=gnu11 -Os -mthumb -flto -Iasix/port -Iasix/lwip/src/include $(CPPFLAGS) -c -MMD -MP -MF $(@:.o=.d) -o $@ $<
 
-LIBS	:= ../fatfs/libfatfs-arm.a be/libc.a be/libgcc.a
+# (BearSSL for slippi_online/so_tls.c: tools/build_bearssl.py --arm --install)
+LIBS	:= ../fatfs/libfatfs-arm.a extlibs/lib/libbearssl-arm.a be/libc.a be/libgcc.a
 ZIPFILE	:= ../loader/data/kernel.zip
 
 # Bluetooth stack
@@ -61,7 +64,10 @@ OBJECTS	+= lwbt/bte.o lwbt/btmemb.o lwbt/btmemr.o lwbt/btpbuf.o lwbt/hci.o lwbt/
 # ENet 1.3.13 on an IOS platform layer
 SO_SOURCES := $(wildcard slippi_online/*.c) $(wildcard slippi_online/enet/*.c)
 OBJECTS += $(SO_SOURCES:.c=.o)
-SO_CFLAGS := -std=gnu99 -Os -flto -DENET_IOS -Islippi_online/enet/include
+SO_CFLAGS := -std=gnu99 -Os -flto -DENET_IOS -Islippi_online/enet/include -I../loader/extlibs/include
+
+# Keep the linker-script TLS read-only section placement visible to the linker.
+slippi_online/so_tls.o slippi_online/so_ws.o slippi_online/so_ws_frame.o slippi_online/so_mm_ws.o slippi_online/so_tcp.o slippi_online/so_stun.o slippi_online/so_stun_io.o: SO_CFLAGS += -fno-lto
 
 slippi_online/%.o : slippi_online/%.c
 	@echo  "CC	$@"
@@ -76,6 +82,12 @@ OBJECTS += ../common/config/MeleeCodes_arm.o
 # SlippWii: the kernel's code region (kernel.ld: 384 KB, with the online boot codes in it) is full.
 # The Triforce arcade boards' code, which Melee never runs, is built for size, not speed.
 GCAM.o JVSIO.o JVSIOMessage.o TRI.o: CFLAGS += -Os
+# SlippWii: so is the patcher of the game's timers, which runs once as the game loads (12 KB at -O3,
+# the code region's last room: a test build's kernel was 40 bytes over it, 2026-11-15).
+PatchTimers.o: CFLAGS += -Os
+# (and Patch.o, for room in the code region: it patches the game at its start, nothing in play;
+# input suggestions for Slippi 3.7.0 left it 1.8 KB short at -O3, 2026-11-17)
+Patch.o: CFLAGS += -Os
 
 # When make is invoked with `make SLIPPI_DEBUG=1`: compile SlippiDebug.o and
 # let GCC define SLIPPI_PROFILE as a macro. Use this for some profiling code.

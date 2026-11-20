@@ -66,6 +66,13 @@ int so_launch_title(u64 title_id)
 	return -1;
 }
 
+int so_net_link(u32 *link, u32 *flags, u8 raw[3])
+{
+	*link = *flags = 0;
+	memset(raw, 0, 3);
+	return 0;
+}
+
 /* The words shared with the PowerPC (so_diag.h): plain memory here. */
 static u32 ppc_words[16];
 
@@ -257,6 +264,9 @@ int so_disc_read(u32 offset, void *buf, u32 len)
 }
 
 void so_fs_lock(void) {}
+void so_fs_diag(void) {}
+void so_pf_diag(void) {}
+void DIDiag(void) {}
 void so_fs_unlock(void) {}
 
 void *so_file_open(const char *path, int *error)
@@ -325,6 +335,7 @@ int so_append_file(const char *path, const void *buf, u32 size, int create)
 void so_make_dir(const char *path) { (void)path; }
 int so_platform_info(char *out, int size) { return so_snprintf(out, size, "a PC\n"); }
 int so_diag_log_setting(void) { return 0; }
+int so_quick_chat_setting(void) { return 1; }
 
 u32 so_optional_codes(u8 *out, u32 room)
 {

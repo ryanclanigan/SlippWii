@@ -381,6 +381,7 @@ s32 ASIXUdpReceive(s32 fd,u32 *addr,u16 *port,void *data,u32 capacity) {
     }
     unlock();return result;
 }
+#include "tcp_client.h"
 static unsigned dns_generation;static int dns_done;static u32 dns_result;
 static void resolved(const char *name,const ip_addr_t *addr,void *arg) {
     (void)name;

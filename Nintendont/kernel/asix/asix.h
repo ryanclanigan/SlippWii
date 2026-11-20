@@ -26,6 +26,15 @@ void ASIXUdpClose(s32 fd);
 s32 ASIXUdpSend(s32 fd,u32 addr,u16 port,const void *data,u32 length);
 s32 ASIXUdpReceive(s32 fd,u32 *addr,u16 *port,void *data,u32 capacity);
 int ASIXResolve(const char *name,u32 *addr);
+/* Single outbound stream, separate from the mirror listener/client. Address is
+ * network order; port is host order. Nonblocking: connect returns -26 while
+ * pending, send/receive -6 while waiting, receive 0 at EOF, other errors <0.
+ * Close must release the descriptor even after a reset/connection error. */
+s32 ASIXTcpOpen(u32 address,u16 port);
+s32 ASIXTcpConnect(s32 fd);
+s32 ASIXTcpSend(s32 fd,const void *data,u32 length);
+s32 ASIXTcpReceive(s32 fd,void *data,u32 capacity);
+void ASIXTcpClose(s32 fd);
 void ASIXUpdate(void);
 void ASIXShutdown(void);
 #endif

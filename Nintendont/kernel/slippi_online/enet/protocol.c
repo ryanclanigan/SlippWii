@@ -848,6 +848,7 @@ enet_protocol_handle_acknowledge (ENetHost * host, ENetEvent * event, ENetPeer *
     roundTripTime = ENET_TIME_DIFFERENCE (host -> serviceTime, receivedSentTime);
 
     enet_peer_throttle (peer, roundTripTime);
+    peer -> sampleRoundTripTime = roundTripTime > 0 ? roundTripTime : 1;   /* Slippi Online (so_np_slowest_ping_ms) */
 
     peer -> roundTripTimeVariance -= peer -> roundTripTimeVariance / 4;
 
@@ -1378,7 +1379,9 @@ enet_protocol_send_unreliable_outgoing_commands (ENetHost * host, ENetPeer * pee
       
        host -> packetSize += buffer -> dataLength;
 
-       * command = outgoingCommand -> command;
+       /* Explicit call: the Wii kernel's memcpy returns the destination end.
+        * An implicit struct-copy builtin can reuse the standard return value. */
+       memcpy (command, & outgoingCommand -> command, sizeof (* command));
        
        enet_list_remove (& outgoingCommand -> outgoingCommandList);
 
@@ -1561,7 +1564,8 @@ enet_protocol_send_reliable_outgoing_commands (ENetHost * host, ENetPeer * peer)
        host -> packetSize += buffer -> dataLength;
        host -> headerFlags |= ENET_PROTOCOL_HEADER_FLAG_SENT_TIME;
 
-       * command = outgoingCommand -> command;
+       /* Do not lower this struct copy to a builtin that reuses memcpy's return. */
+       memcpy (command, & outgoingCommand -> command, sizeof (* command));
 
        if (outgoingCommand -> packet != NULL)
        {

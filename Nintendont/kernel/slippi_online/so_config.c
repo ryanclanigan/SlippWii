@@ -17,17 +17,23 @@ void so_config_defaults(SoConfig *config)
 	strlcpy(config->user_path, SO_USER_PATH, sizeof(config->user_path));
 	strlcpy(config->mm_host, SO_MM_HOST_DEFAULT, sizeof(config->mm_host));
 	config->mm_port = SO_MM_PORT_DEFAULT;
+	strlcpy(config->mm_url, SO_MM_URL_DEFAULT, sizeof(config->mm_url));
+	strlcpy(config->stun_hosts, SO_STUN_HOSTS_DEFAULT, sizeof(config->stun_hosts));
 	strlcpy(config->app_version, SO_APP_VERSION_DEFAULT, sizeof(config->app_version));
+	config->client_name_mode = SO_CLIENT_NAME_MODE;
 	config->delay = 2;
 	config->rollback = 1;	/* (the default since 1.4.0; 0 in config.ini: the game waits for late inputs, as 1.3 did) */
 	config->boot_quiet_s = 60;
 	config->selftest_stage_pause_s = 3;
 	config->online_main_priority = 0x7C;
 	config->online_loop_us = 500;
+	config->multi_delay_room_ms = 20;
+	config->multi_stream = 100;	/* (1 in config.ini: a send a frame, as it was; 0: not while the game runs) */
 	config->rollback_bg_saves = 2;
 	config->rollback_direct = 1;	/* (on since 1.4.0-beta.3; 0 in config.ini is the off-switch) */
-	config->rollback_direct_ping_ms = 75;
+	config->rollback_direct_ping_ms = 85;
 	config->rollback_direct_try_ms = 0;
+	config->rollback_direct_early_ms = 20;
 	config->test_spike_every = 300;
 	config->rollback_bg_ping_ms = 80;
 	config->rollback_nudge_poll = 1;
@@ -35,6 +41,7 @@ void so_config_defaults(SoConfig *config)
 	config->log_port = 51450;
 	config->selftest_frames = 600;
 	config->chat = 1;
+	config->input_suggestions = 1;
 	config->rumble = 1;
 	config->ping_display = 1;
 }
@@ -57,14 +64,48 @@ static int copy_value(char *out, int size, const char *value)
 	return 0;
 }
 
+/* 2 * size hex digits into bytes: 0, or -1. */
+static int parse_hex(const char *value, u8 *out, int size)
+{
+	int i;
+	if ((int)strlen(value) != 2 * size)
+		return -1;
+	for (i = 0; i < 2 * size; i++) {
+		char ch = value[i];
+		int digit = ch >= '0' && ch <= '9' ? ch - '0' : ch >= 'a' && ch <= 'f' ? ch - 'a' + 10 :
+			ch >= 'A' && ch <= 'F' ? ch - 'A' + 10 : -1;
+		if (digit < 0)
+			return -1;
+		out[i / 2] = (u8)(i & 1 ? out[i / 2] | digit : digit << 4);
+	}
+	return 0;
+}
+
 /* Applies one setting; returns < 0 for a bad value or unknown key. */
 static int apply(SoConfig *c, const char *key, const char *value)
 {
 	long v;
 	if (!strcmp(key, "user_path"))
 		return copy_value(c->user_path, sizeof(c->user_path), value);
-	if (!strcmp(key, "mm_host"))
+	if (!strcmp(key, "mm_host")) {
+		/* The ENet service's address: naming one chooses that service, whatever the build's own
+		 * is (an mm_url line after it chooses again). So a test that names its server, as every
+		 * test does, cannot end up at Slippi's new one in a build made for it. */
+		c->mm_url[0] = 0;
 		return copy_value(c->mm_host, sizeof(c->mm_host), value);
+	}
+	if (!strcmp(key, "mm_url"))
+		return copy_value(c->mm_url, sizeof(c->mm_url), value);
+	if (!strcmp(key, "stun_hosts"))
+		return copy_value(c->stun_hosts, sizeof(c->stun_hosts), value);
+	if (!strcmp(key, "test_files_root"))
+		return copy_value(c->test_files_root, sizeof(c->test_files_root), value);
+	if (!strcmp(key, "test_mm_addr"))
+		return so_parse_ipv4(value, &c->test_mm_addr);
+	if (!strcmp(key, "test_tls_root")) {
+		c->test_tls_root_set = parse_hex(value, c->test_tls_root, sizeof(c->test_tls_root)) == 0;
+		return c->test_tls_root_set ? 0 : -1;
+	}
 	if (!strcmp(key, "app_version"))
 		return copy_value(c->app_version, sizeof(c->app_version), value);
 	if (!strcmp(key, "selftest_code"))
@@ -83,6 +124,7 @@ static int apply(SoConfig *c, const char *key, const char *value)
 		return 0; \
 	}
 	RANGED("mm_port", mm_port, 1, 65535)
+	RANGED("test_client_name", client_name_mode, 0, 2)
 	RANGED("local_port", local_port, 0, 65535)
 	RANGED("delay", delay, 1, 9)
 	RANGED("log_packets", log_packets, 0, 1)
@@ -109,23 +151,31 @@ static int apply(SoConfig *c, const char *key, const char *value)
 	RANGED("rollback_direct", rollback_direct, 0, 3)
 	RANGED("rollback_direct_ping_ms", rollback_direct_ping_ms, 0, 1000)
 	RANGED("rollback_direct_try_ms", rollback_direct_try_ms, 0, 1000)
+	RANGED("rollback_direct_early_ms", rollback_direct_early_ms, 0, 1000)
 	RANGED("rollback_bg_ping_ms", rollback_bg_ping_ms, 0, 500)
 	RANGED("rollback_nudge_poll", rollback_nudge_poll, 0, 2)
+	RANGED("rollback_answer_early", rollback_answer_early, 0, 1)
 	RANGED("rollback_sync_most_us", rollback_sync_most_us, 0, 12000)
 	RANGED("rollback_nudge_on_us", rollback_nudge_on_us, 0, 10000)
 	RANGED("rollback_nudge_off_us", rollback_nudge_off_us, 0, 10000)
-	RANGED("chat", chat, 0, 1)
+	RANGED("chat", chat, 0, 2)
+	RANGED("input_suggestions", input_suggestions, 0, 1)
 	RANGED("rumble", rumble, 0, 1)
 	RANGED("ping_display", ping_display, 0, 1)
 	RANGED("test_drop_pct", test_drop_pct, 0, 90)
 	RANGED("rollback", rollback, 0, 1)
 	RANGED("test_lag_frames", test_lag_frames, 0, 6)
+	RANGED("test_multi_rollback", test_multi_rollback, 0, 1)
+	RANGED("multi_delay_room_ms", multi_delay_room_ms, 0, 60)
+	RANGED("multi_stream", multi_stream, 0, 250)
 	RANGED("test_spike_ms", test_spike_ms, 0, 2000)
 	RANGED("test_spike_every", test_spike_every, 20, 3000)
 	RANGED("test_stuck_frame", test_stuck_frame, 0, 60000)
 	RANGED("test_hang_frame", test_hang_frame, 0, 60000)
 	RANGED("test_crash_frame", test_crash_frame, 0, 60000)
-	RANGED("test_logfile_dump", test_logfile_dump, 0, 1)
+	RANGED("test_desync_frame", test_desync_frame, 0, 60000)
+	RANGED("test_start_limit_ms", test_start_limit_ms, 0, 60000)
+	RANGED("test_logfile_dump", test_logfile_dump, 0, 2)
 	RANGED("test_slow_frame_ms", test_slow_frame_ms, 0, 30)
 	RANGED("test_old_capture_check", test_old_capture_check, 0, 1)
 	RANGED("test_file_sleep", test_file_sleep, 0, 1)
@@ -139,6 +189,8 @@ static int apply(SoConfig *c, const char *key, const char *value)
 	RANGED("rollback_poll_early_us", rollback_poll_early_us, 0, 12000)
 	RANGED("rollback_poll_deep_us", rollback_poll_deep_us, 0, 6000)
 	RANGED("test_control", test_control, 0, 1)
+	RANGED("test_wifi", test_wifi, 0, 1)
+	RANGED("test_latest_keep", test_latest_keep, 0, 1)
 #undef RANGED
 	return -2;
 }
@@ -156,7 +208,7 @@ static char *trim(char *s)
 
 void so_config_parse(SoConfig *config, const char *text, u32 len)
 {
-	char line[128];
+	char line[256];	/* (a test's root key is 130 characters) */
 	u32 pos = 0;
 	while (pos < len) {
 		u32 n = 0;
@@ -206,9 +258,46 @@ int so_user_parse(SoUser *user, const char *text, u32 len)
 	return 0;
 }
 
+int so_config_next(const SoConfig *config)
+{
+	return so_version_cmp(config->app_version, "3.6.4") > 0;
+}
+
+/* (in any case: a name is the same host, and a test's settings must never be honoured for it) */
+static int names_slippi(const char *s)
+{
+	static const char want[] = "slippi.gg";
+	for (; *s; s++) {
+		int i;
+		for (i = 0; want[i]; i++) {
+			char c = s[i];
+			if (c >= 'A' && c <= 'Z')
+				c = (char)(c + ('a' - 'A'));
+			if (c != want[i])
+				break;
+		}
+		if (!want[i])
+			return 1;
+	}
+	return 0;
+}
+
 int so_config_is_real_mm(const SoConfig *config)
 {
-	return strstr(config->mm_host, "slippi.gg") != NULL;
+	return names_slippi(config->mm_url[0] ? config->mm_url : config->mm_host);
+}
+
+int so_config_finish(SoConfig *config)
+{
+	int changed;
+	if (!so_config_is_real_mm(config))
+		return 0;	/* a test server: tests choose */
+	changed = strcmp(config->app_version, SO_APP_VERSION_DEFAULT) != 0 || config->client_name_mode != SO_CLIENT_NAME_MODE ||
+		  strcmp(config->mm_url, SO_MM_URL_DEFAULT) != 0;
+	strlcpy(config->app_version, SO_APP_VERSION_DEFAULT, sizeof(config->app_version));
+	strlcpy(config->mm_url, SO_MM_URL_DEFAULT, sizeof(config->mm_url));
+	config->client_name_mode = SO_CLIENT_NAME_MODE;
+	return changed;
 }
 
 /* Test builds only (slippi-wii tools/sweep writes it, then restores the
@@ -236,6 +325,9 @@ static int load(SoConfig *config, SoUser *user, char *text)
 			strlcpy(config->user_path, SO_TEST_USER_PATH, sizeof(config->user_path));
 		so_log("config: TEST BUILD: compiled-in settings over %s", SO_CONFIG_PATH);
 	}
+	if (so_config_finish(config))
+		so_log("config: the version and the service are not settings on Slippi's server: this build speaks Slippi %s",
+			SO_APP_VERSION_DEFAULT);
 
 	memset(user, 0, sizeof(*user));
 	n = so_read_file(config->user_path, text, FILE_MAX - 1);

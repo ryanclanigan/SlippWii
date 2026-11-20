@@ -77,6 +77,7 @@ typedef struct {
 	u32 acks_sent, acks_received;
 	u32 resends;	/* pad packets sent without a new pad */
 	u32 test_dropped;
+	u32 drop_reports;	/* (Slippi 3.6.5) reports that a player dropped, from the others */
 } SoNpStats;
 
 int so_np_init(void);
@@ -94,6 +95,7 @@ void so_np_stop(void);
 
 SoNpStatus so_np_status(void);
 u8 so_np_remote_count(void);
+u32 so_np_slowest_ping_ms(void);	/* the lobby's slowest opponent: its round trip */
 u8 so_np_local_player_idx(void);
 int so_np_is_decider(void);
 /* Remote index (0..count-1) <-> player index (0..3). */
@@ -125,6 +127,15 @@ void so_np_send_pad(const SoLocalPad *pad);
 
 /* Lockstep access to an opponent's pads. */
 int so_np_remote_pad(int remote, s32 frame, u8 *out);
+/* (3.7.0) The inputs the game is to predict the 7 frames after `latest_frame` with, from the opponent's
+ * input suggestions where one applies (so_suggest_fill); returns how many slots were filled. */
+u32 so_np_suggest_fill(int remote, s32 latest_frame, u8 *out, u32 stride);
+/* At a game's end: each opponent's suggestions, for the log. */
+void so_np_suggest_report(void);
+/* (3.7.0) Sends an input suggestion of ours (so_exi.c), unsequenced as pads are; and whether this game
+ * uses them at all (input_suggestions, no bot in it). */
+void so_np_send_suggestion(s32 target, u32 seq, const u8 *pad);
+int so_np_suggest_on(void);
 s32 so_np_remote_head_frame(int remote);
 /* 1 in the first game against this opponent (so_pads.h, so_peer_first_game). */
 int so_np_first_game(void);
@@ -159,6 +170,14 @@ const SoSyncedState *so_np_remote_synced_state(int remote);
 
 /* Disconnects every opponent and tells them why. */
 void so_np_force_disconnect(u32 reason);
+void so_np_drop_player(int remote);	/* one opponent of several: the game goes on with the others */
+/* (Slippi 3.6.5) The frame an opponent that has left is out of the game from:
+ * its last input's and 16, once the players have told each other which
+ * inputs they have of it; 0 before, and for one still here. */
+s32 so_np_despawn_frame(int remote);
+/* (Slippi 3.6.5) Before a frame's inputs are taken: an opponent that has
+ * left, once settled, goes on with its last input up to `frame`. */
+void so_np_fill_dropped(s32 frame);
 
 void so_np_stats(SoNpStats *out);
 

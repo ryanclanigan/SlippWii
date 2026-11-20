@@ -15,9 +15,15 @@
 #include "string.h"
 #include "host_platform.h"
 #include "test.h"
+#include "../../../common/include/Metadata.h"	/* SLIPPWII_VERSION */
 
 int test_failures;
 int test_checks;
+
+void test_mq(void);	/* test_mq.c */
+void test_next(void);	/* test_next.c */
+void test_suggest(void);	/* test_suggest.c */
+void test_suggest_send(void);	/* test_suggest.c */
 
 /* ---- so_util ------------------------------------------------------------- */
 
@@ -356,7 +362,7 @@ static void test_local_pads(void)
 static void test_remote_pads(void)
 {
 	static SoRemotePads q;
-	u8 wire[8 * 4], out[8];
+	u8 wire[8 * 4], out[SO_PAD_SIZE];
 	int i;
 	so_remote_pads_reset(&q);
 	CHECK(so_remote_pads_get(&q, 1, out) < 0);
@@ -548,7 +554,7 @@ static void test_mm_ticket(void)
 	s.connect_code_len = sizeof(code);
 	CHECK(so_mm_build_ticket(out, sizeof(out), &c, &u, &s, "10.0.0.47:41234") > 0);
 	CHECK_STR(out,
-		"{\"appVersion\":\"3.6.4\",\"ipAddressLan\":\"10.0.0.47:41234\","
+		"{\"appVersion\":\"" SO_APP_VERSION_DEFAULT "\",\"ipAddressLan\":\"10.0.0.47:41234\","
 		"\"search\":{\"connectCode\":[130,115,130,100,130,114,130,115,129,148,130,80,130,81,130,82],\"mode\":2},"
 		"\"type\":\"create-ticket\","
 		"\"user\":{\"connectCode\":\"ABCD#0\",\"displayName\":\"Ab\\\"cd\",\"playKey\":\"KEY1\",\"uid\":\"UID1\"}}");
@@ -558,12 +564,87 @@ static void test_mm_ticket(void)
 		static const char ok[] = "{\"type\":\"create-ticket-resp\"}";
 		static const char refused[] = "{\"type\":\"create-ticket-resp\",\"error\":\"Nope\"}";
 		static const char other[] = "{\"type\":\"other\"}";
-		CHECK_INT(so_mm_parse_ticket_reply(ok, strlen(ok), err, sizeof(err)), 0);
-		CHECK(so_mm_parse_ticket_reply(refused, strlen(refused), err, sizeof(err)) < 0);
+		static const char outdated[] = "{\"type\":\"create-ticket-resp\",\"error\":\"Please update\","
+			"\"latestVersion\":\"3.6.5\"}";
+		char latest[24];
+		CHECK_INT(so_mm_parse_ticket_reply(ok, strlen(ok), err, sizeof(err), latest, sizeof(latest)), 0);
+		CHECK_STR(latest, "");
+		CHECK(so_mm_parse_ticket_reply(refused, strlen(refused), err, sizeof(err), latest, sizeof(latest)) < 0);
 		CHECK_STR(err, "Nope");
-		CHECK(so_mm_parse_ticket_reply(other, strlen(other), err, sizeof(err)) < 0);
+		CHECK_STR(latest, "");
+		/* a version the server no longer takes: its error, and the version it names */
+		CHECK(so_mm_parse_ticket_reply(outdated, strlen(outdated), err, sizeof(err), latest, sizeof(latest)) < 0);
+		CHECK_STR(err, "Please update");
+		CHECK_STR(latest, "3.6.5");
+		CHECK(so_mm_parse_ticket_reply(other, strlen(other), err, sizeof(err), latest, sizeof(latest)) < 0);
+		CHECK_STR(latest, "");
 	}
 	CHECK_STR(err, "Invalid response when joining mm queue");
+
+	/* The client's name (off unless Slippi's team asks for one): a key of its own, in the
+	 * place nlohmann::json's sorted keys give it, or after the version */
+	c.client_name_mode = 1;
+	CHECK(so_mm_build_ticket(out, sizeof(out), &c, &u, &s, "10.0.0.47:41234") > 0);
+	CHECK(strstr(out, "{\"appVersion\":\"" SO_APP_VERSION_DEFAULT "\",\"client\":\"SlippWii/" SLIPPWII_VERSION "\",\"ipAddressLan\":") == out);
+	c.client_name_mode = 2;
+	CHECK(so_mm_build_ticket(out, sizeof(out), &c, &u, &s, "10.0.0.47:41234") > 0);
+	CHECK(strstr(out, "{\"appVersion\":\"" SO_APP_VERSION_DEFAULT "+slippwii." SLIPPWII_VERSION "\",\"ipAddressLan\":") == out);
+	CHECK(!strstr(out, "\"client\""));
+}
+
+/* Slippi's version: what a build reports, and when it is behind. */
+static void test_versions(void)
+{
+	SoConfig c;
+	CHECK_INT(so_version_cmp("3.6.4", "3.6.4"), 0);
+	CHECK(so_version_cmp("3.6.5", "3.6.4") > 0);
+	CHECK(so_version_cmp("3.6.4", "3.6.5") < 0);
+	CHECK(so_version_cmp("3.10.0", "3.9.9") > 0);	/* by number, not by letter */
+	CHECK(so_version_cmp("4.0.0", "3.99.99") > 0);
+	CHECK(so_version_cmp("3.7", "3.6.4") > 0);
+	CHECK_INT(so_version_cmp("3.6", "3.6.0"), 0);
+	CHECK(so_version_cmp("3.6.5-beta.2", "3.6.4") > 0);
+	CHECK(so_version_cmp("3.6.4-beta.2", "3.6.4") < 0);	/* a release is over its own pre-releases */
+	CHECK(so_version_cmp("3.6.4", "3.6.4-rc.1") > 0);
+	CHECK_INT(so_version_cmp("3.6.4+slippwii.1.5.1", "3.6.4"), 0);	/* build metadata does not count */
+	CHECK_INT(so_version_cmp("v3.6.4", "3.6.4"), 0);
+	CHECK(so_version_cmp("", "3.6.4") < 0);	/* no version: nothing is newer */
+	CHECK(so_version_cmp("junk", "3.6.4") < 0);
+	CHECK_INT(so_version_cmp("", ""), 0);
+	CHECK(so_version_cmp("99999999999999999999.0.0", "3.6.4") > 0);
+
+	/* Wired only: the connection chosen in the Wii's settings (0xa7: chosen, wired; 0xa6: chosen,
+	 * wireless), the link's state where IOS gives it, neither on a console that cannot say */
+	CHECK_INT(so_net_is_wifi(2, 0, 0xa7), 0);
+	CHECK_INT(so_net_is_wifi(2, 0, 0xa6), 1);
+	CHECK_INT(so_net_is_wifi(3, SO_LINK_WIFI_UP, 0xa6), 1);
+	CHECK_INT(so_net_is_wifi(3, SO_LINK_WIRED, 0xa6), 0);	/* the link says wired: not refused */
+	CHECK_INT(so_net_is_wifi(3, SO_LINK_WIFI_UP, 0xa7), 0);
+	CHECK_INT(so_net_is_wifi(1, SO_LINK_WIFI_UP, 0), 1);
+	CHECK_INT(so_net_is_wifi(1, SO_LINK_WIFI_DOWN, 0), 1);
+	CHECK_INT(so_net_is_wifi(1, SO_LINK_WIRED, 0), 0);
+	CHECK_INT(so_net_is_wifi(1, SO_LINK_BUSY, 0), 0);
+	CHECK_INT(so_net_is_wifi(0, 0, 0), 0);
+	CHECK_INT(so_net_is_wifi(0, (u32)-6, 0xa6), 0);	/* (nothing read: the values mean nothing) */
+
+	/* Against Slippi's server the version reported and the client's name are the build's,
+	 * whatever config.ini says; a test server takes what a test sets. */
+	{
+		static const char ini[] = "app_version=9.9.9\ntest_client_name=1\n";
+		static const char test_ini[] = "mm_host=10.0.0.29\napp_version=3.6.3\ntest_client_name=2\n";
+		so_config_defaults(&c);
+		CHECK_INT(so_config_finish(&c), 0);
+		so_config_parse(&c, ini, sizeof(ini) - 1);
+		CHECK_STR(c.app_version, "9.9.9");
+		CHECK_INT(so_config_finish(&c), 1);
+		CHECK_STR(c.app_version, SO_APP_VERSION_DEFAULT);
+		CHECK_INT(c.client_name_mode, SO_CLIENT_NAME_MODE);
+		so_config_defaults(&c);
+		so_config_parse(&c, test_ini, sizeof(test_ini) - 1);
+		CHECK_INT(so_config_finish(&c), 0);
+		CHECK_STR(c.app_version, "3.6.3");
+		CHECK_INT(c.client_name_mode, 2);
+	}
 }
 
 static void test_mm_match(void)
@@ -853,6 +934,9 @@ static void test_logfile(void)
 	strcpy(line, "account: TEST#123 and X#1, version 1.4.0-beta.3, word 80003100, SO searching #3");
 	so_logfile_scrub(line);
 	CHECK_STR(line, "account: T***#*** and X#*, version 1.4.0-beta.3, word 80003100, SO searching #3");
+	strcpy(line, "exi: the game: mode 3, stage 31, teams 1, delay 4, 3 opponents, rollback 0; ports: 25/4/1/0 2/1/0/0* 20/2/1/1 -");
+	so_logfile_scrub(line);	/* (a game's setup, so_exi.c say_setup: nothing of it is an address) */
+	CHECK_STR(line, "exi: the game: mode 3, stage 31, teams 1, delay 4, 3 opponents, rollback 0; ports: 25/4/1/0 2/1/0/0* 20/2/1/1 -");
 	strcpy(line, "1.2.3.4.5 and 1234.1.1.1 and 1.1.1.1234 and 714.508 are no addresses");
 	so_logfile_scrub(line);
 	CHECK_STR(line, "1.2.3.4.5 and 1234.1.1.1 and 1.1.1.1234 and 714.508 are no addresses");
@@ -947,6 +1031,85 @@ static void test_logfile(void)
 	CHECK(so_logfile_service(0, 0) > 0);
 	f = test_log_file("/slippwii/logs/crash-1.txt", NULL);
 	CHECK(f && strstr(f, "number 9 on this card") != NULL);
+
+	/* a desync, the switch off: the boot's last lines and the game's to its end, as a desync file; the
+	 * next game's lines are in no file, and the next report is a new one, from the lines after it */
+	test_log_files_reset();
+	so_logfile_test_reset();
+	CHECK_INT(so_alloc_init(arena, sizeof(arena)), 0);
+	test_set_time_us(0);
+	so_logfile_init(0);
+	so_logfile_line("10.000 np: selections from player 0: char 2/1 (picked), team 1, stage 31");
+	so_logfile_line("20.000 exi: checksum differs at frame 500: ours 00010002, player 2's 00010040");
+	so_logfile_report_end();	/* (no desync: nothing to end, and no file) */
+	CHECK_INT(so_logfile_service(1, 1), 0);
+	so_logfile_desync();
+	CHECK(so_logfile_service(1, 0) > 0);	/* (at once, in the game) */
+	f = test_log_file("/slippwii/logs/desync-1.txt", NULL);
+	CHECK(f && strstr(f, "SlippWii desync report, number 1 on this card\n") == f);
+	CHECK(f && strstr(f, "team 1, stage 31\n") && strstr(f, "checksum differs at frame 500"));
+	CHECK(test_log_file("/slippwii/logs/crash-1.txt", NULL) == NULL);
+	CHECK(strstr(test_log_file("/slippwii/logs/newest.txt", NULL), "desync-1.txt (number 1)") != NULL);
+	CHECK(so_logfile_path() != NULL);
+	so_logfile_line("30.000 game over: 900 frames");
+	so_logfile_report_end();
+	CHECK(so_logfile_service(1, 0) > 0);	/* (the game's last lines, at once) */
+	CHECK(strstr(test_log_file("/slippwii/logs/desync-1.txt", NULL), "30.000 game over: 900 frames\n") != NULL);
+	CHECK(so_logfile_path() == NULL);
+	so_logfile_line("40.000 the next game's line");
+	test_advance_us(6000000);
+	CHECK_INT(so_logfile_service(1, 1), 0);
+	CHECK(strstr(test_log_file("/slippwii/logs/desync-1.txt", NULL), "the next game") == NULL);
+	/* a second desync: a new file, from the lines after the first one's */
+	so_logfile_line("50.000 exi: checksum differs at frame 77");
+	so_logfile_desync();
+	CHECK(so_logfile_service(1, 0) > 0);
+	f = test_log_file("/slippwii/logs/desync-2.txt", NULL);
+	CHECK(f && strstr(f, "number 2 on this card") && strstr(f, "40.000 the next game's line\n") && strstr(f, "frame 77\n"));
+	CHECK(f && strstr(f, "frame 500") == NULL);
+	/* a crash in that game: its lines go on into the file, and the game's end does not end it */
+	so_logfile_line("60.000 CRASH: exception 2");
+	so_logfile_crash();
+	so_logfile_report_end();
+	CHECK(so_logfile_service(1, 0) > 0);
+	so_logfile_line("61.000 exit: done");
+	CHECK(so_logfile_service(1, 1) > 0);
+	f = test_log_file("/slippwii/logs/desync-2.txt", NULL);
+	CHECK(f && strstr(f, "60.000 CRASH: exception 2\n") && strstr(f, "61.000 exit: done\n"));
+	CHECK(test_log_file("/slippwii/logs/crash-3.txt", NULL) == NULL);
+	/* the game's end before the file was ever written: it is written whole, and ended */
+	test_log_files_reset();
+	so_logfile_test_reset();
+	CHECK_INT(so_alloc_init(arena, sizeof(arena)), 0);
+	so_logfile_init(0);
+	so_logfile_line("1.000 exi: checksum differs at frame 9");
+	so_logfile_desync();
+	so_logfile_line("2.000 game over");
+	so_logfile_report_end();
+	CHECK(so_logfile_service(0, 0) > 0);
+	f = test_log_file("/slippwii/logs/desync-1.txt", NULL);
+	CHECK(f && strstr(f, "frame 9\n") && strstr(f, "2.000 game over\n"));
+	CHECK(so_logfile_path() == NULL);
+	/* a crash after a desync's file is done: a crash file of its own */
+	so_logfile_line("3.000 PANIC");
+	so_logfile_crash();
+	CHECK(so_logfile_service(0, 0) > 0);
+	f = test_log_file("/slippwii/logs/crash-2.txt", NULL);
+	CHECK(f && strstr(f, "SlippWii crash report, number 2") == f && strstr(f, "3.000 PANIC\n") && !strstr(f, "frame 9"));
+	/* the switch on: a desync's lines are in the log's file, and it goes on after the game */
+	test_log_files_reset();
+	so_logfile_test_reset();
+	CHECK_INT(so_alloc_init(arena, sizeof(arena)), 0);
+	so_logfile_init(1);
+	so_logfile_line("1.000 exi: checksum differs at frame 9");
+	so_logfile_desync();
+	CHECK(so_logfile_service(1, 0) > 0);
+	so_logfile_report_end();
+	so_logfile_line("2.000 the next game's line");
+	CHECK(so_logfile_service(1, 1) > 0);
+	f = test_log_file("/slippwii/logs/log-1.txt", NULL);
+	CHECK(f && strstr(f, "frame 9\n") && strstr(f, "2.000 the next game's line\n"));
+	CHECK(test_log_file("/slippwii/logs/desync-1.txt", NULL) == NULL);
 	test_log_files_reset();
 	so_logfile_test_reset();
 }
@@ -970,11 +1133,16 @@ int main(void)
 	RUN(test_direct_mode);
 	RUN(test_peer_games);
 	RUN(test_mm_ticket);
+	RUN(test_versions);
 	RUN(test_mm_match);
 	RUN(test_text);
 	RUN(test_gct);
 	RUN(test_disc_files);
 	RUN(test_logfile);
+	RUN(test_mq);
+	RUN(test_suggest);
+	RUN(test_suggest_send);
+	RUN(test_next);
 	printf("%d checks, %d failures\n", test_checks, test_failures);
 	return test_failures ? 1 : 0;
 }

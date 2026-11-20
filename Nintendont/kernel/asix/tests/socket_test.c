@@ -25,6 +25,7 @@ static unsigned synacks,broadcasts,retransmits;
 static int block_output,drop_next_data;
 static u32 unblock_at;
 static unsigned rejected_outputs,dropped_segments;
+static void outgoing_wire(const u8 *tcp,unsigned header,unsigned length);
 static u8 incoming[64][1514];static unsigned sizes[64],head,count;
 static u16 b16(const u8 *p){return ((u16)p[0]<<8)|p[1];}
 static u32 b32(const u8 *p){return ((u32)b16(p)<<16)|b16(p+2);}
@@ -134,12 +135,15 @@ err_t asix_hw_output(struct netif *n,struct pbuf *p){
     u8 *t=ip+ih;unsigned th=(t[12]>>4)*4,len=b16(ip+2)-ih-th;
     assert(checksum(t,th+len,6+th+len+b16(ip+12)+b16(ip+14)+b16(ip+16)+b16(ip+18))==0);
     if(t[13]&4)return ERR_OK;
+    if(b16(t+2)==443){outgoing_wire(t,th,len);return ERR_OK;}
     if((t[13]&0x12)==0x12){synacks++;server_seq=b32(t+4)+1;segment(0x10,NULL,0);}
     if(len && drop_next_data){drop_next_data=0;dropped_segments++;return ERR_OK;}
     if(len){u32 seq=b32(t+4);if(seq>server_seq){segment(0x10,NULL,0);return ERR_OK;}if(seq<server_seq)retransmits++;else {for(unsigned i=0;i<len;i++)assert(t[th+i]==(u8)((stream_bytes+i)*37+13));stream_bytes+=len;server_seq+=len;}segment(0x10,NULL,0);}
     return ERR_OK;
 }
+#include "tcp_client_test.h"
 int main(int argc,char **argv){
+    if(argc>1 && !strcmp(argv[1],"tcp-client")){tcp_client_tests();return 0;}
     if(argc>1) {
         if(!strncmp(argv[1],"quiet-",6))test_diagnostic_log=0;
         if(!strcmp(argv[1],"quiet-static")) {

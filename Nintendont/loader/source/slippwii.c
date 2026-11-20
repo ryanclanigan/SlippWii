@@ -5,6 +5,8 @@
  *   /slippwii/netplay.gct          Slippi's online code (as Slippi Dolphin runs it)
  *   /slippwii/files/<name>         Slippi's own menu files, shipped whole
  *   /slippwii/patches/<name>.diff  Slippi's patches for Melee's menu files
+ *   /slippwii/patches/<name>.link  Slippi's files whose assets are links into the disc
+ *                                  (from the version after 3.6.4: hsd_links.c)
  *   /slippwii/patches/manifest.txt what the files must be: kind, path, size, CRC-32
  *   /slippwii/user.json            the player's Slippi account (they copy it)
  *
@@ -32,7 +34,9 @@
 #include "ff_utf8.h"
 #include "diskio.h"
 #include "vcdiff.h"
+#include "hsd_links.h"
 #include "slippwii.h"
+#include "slippwii_edits.h"
 
 extern FATFS *devices[2];
 extern u32 Shutdown;	/* menu.c */
@@ -122,6 +126,17 @@ static void path_of(char *out, size_t size, const char *dev, const char *rel)
 	snprintf(out, size, "%s:/slippwii/%s", dev, rel);
 }
 
+/* Tests (the launch argument "slippwii-files-root=/FOLDER", main.c): Slippi's files, their patches
+ * and what is made of them are in FOLDER/slippwii of the card, not in /slippwii: another Slippi
+ * version's, beside the player's own (the kernel's test_files_root is the same folder). The
+ * account and the settings stay where they are. */
+const char *SlippWiiFilesRoot = "";
+
+static void files_path(char *out, size_t size, const char *dev, const char *rel)
+{
+	snprintf(out, size, "%s:%s/slippwii/%s", dev, SlippWiiFilesRoot, rel);
+}
+
 /* The file (malloc'd), or NULL. */
 static u8 *load(const char *path, u32 *size)
 {
@@ -191,11 +206,19 @@ static int copy_to_game_drive(const char *rel)
 
 static void make_dirs(const char *dev)
 {
-	char path[64];
+	char path[96];
 	snprintf(path, sizeof(path), "%s:/slippwii", dev);
 	f_mkdir_char(path);
 	snprintf(path, sizeof(path), "%s:/slippwii/files", dev);
 	f_mkdir_char(path);
+	if (SlippWiiFilesRoot[0]) {
+		snprintf(path, sizeof(path), "%s:%s", dev, SlippWiiFilesRoot);
+		f_mkdir_char(path);
+		snprintf(path, sizeof(path), "%s:%s/slippwii", dev, SlippWiiFilesRoot);
+		f_mkdir_char(path);
+		snprintf(path, sizeof(path), "%s:%s/slippwii/files", dev, SlippWiiFilesRoot);
+		f_mkdir_char(path);
+	}
 }
 
 /* ---- the disc ---------------------------------------------------------------- */
@@ -476,8 +499,10 @@ static void check_account(void)
 
 /* ---- the menu files ---------------------------------------------------------------- */
 
+enum { KIND_COPY, KIND_PATCH, KIND_LINK };
+
 typedef struct {
-	int patch;		/* made from the disc, or copied */
+	int kind;		/* copied; or made from the disc: a patch applied, or links resolved */
 	char path[48];		/* in /slippwii/ */
 	u32 size;
 	u32 crc;
@@ -496,7 +521,7 @@ static int parse_manifest(char *text, Entry *e, int max)
 			continue;
 		if (n == max || sscanf(line, "%7s %47s %lu %lx", kind, path, &size, &crc) != 4)
 			return -1;
-		e[n].patch = strcmp(kind, "patch") == 0;
+		e[n].kind = strcmp(kind, "patch") == 0 ? KIND_PATCH : strcmp(kind, "link") == 0 ? KIND_LINK : KIND_COPY;
 		strcpy(e[n].path, path);
 		e[n].size = (u32)size;
 		e[n].crc = (u32)crc;
@@ -518,12 +543,12 @@ static int ready(const Entry *e, int n, u32 stamp)
 	u32 size;
 	char *text;
 	int i, ok;
-	path_of(path, sizeof(path), dst_dev, "ready.txt");
+	files_path(path, sizeof(path), dst_dev, "ready.txt");
 	text = (char *)load(path, &size);
 	ok = text && strtoul(text, NULL, 16) == stamp;
 	free(text);
 	for (i = 0; ok && i < n; i++) {
-		path_of(path, sizeof(path), dst_dev, e[i].path);
+		files_path(path, sizeof(path), dst_dev, e[i].path);
 		ok = size_of(path) == (long)e[i].size;
 	}
 	return ok;
@@ -541,6 +566,18 @@ static void files_failed(const char *file, const char *why)
 	ask_offline_or_exit();
 }
 
+/* The disc, for hsd_links.c */
+static u8 *link_load(void *ctx, const char *name, u32 *size)
+{
+	return disc_file((Disc *)ctx, name, size);
+}
+
+static void link_unload(void *ctx, u8 *data)
+{
+	(void)ctx;
+	free(data);
+}
+
 static void prepare_files(unsigned int CurDICMD, u32 ISOShift)
 {
 	char path[128];
@@ -553,7 +590,7 @@ static void prepare_files(unsigned int CurDICMD, u32 ISOShift)
 	u8 id[8];
 	int opened = 0;
 
-	path_of(path, sizeof(path), src_dev, "patches/manifest.txt");
+	files_path(path, sizeof(path), src_dev, "patches/manifest.txt");
 	manifest = (char *)load(path, &manifest_size);
 	if (!manifest)
 		return;	/* not the release layout (files made on a PC): use them as they are */
@@ -581,20 +618,36 @@ static void prepare_files(unsigned int CurDICMD, u32 ISOShift)
 		say(BLACK, "%2u/%d  %s", i + 1, n, name);
 		screen_draw(NULL, NULL);
 
-		if (e[i].patch) {
+		if (e[i].kind != KIND_COPY && !opened) {
+			if (disc_open(&disc, CurDICMD, ISOShift, id) < 0) {
+				files_failed("the disc", "could not be read");
+				return;
+			}
+			opened = 1;
+		}
+		if (e[i].kind == KIND_LINK) {
+			/* One of Slippi's files whose assets are links into the disc's files: copied in from them. */
+			HsdDisc links = { &disc, link_load, link_unload };
+			u8 *linked;
+			u32 linked_size;
+			char rel[64];
+			snprintf(rel, sizeof(rel), "patches/%s.link", name);
+			files_path(path, sizeof(path), src_dev, rel);
+			linked = load(path, &linked_size);
+			if (!linked) {
+				disc_close(&disc);
+				files_failed(rel, "missing");
+				return;
+			}
+			out = hsd_resolve(linked, linked_size, &links, &out_size, &error);
+			free(linked);
+		} else if (e[i].kind == KIND_PATCH) {
 			u8 *delta, *source;
 			u32 delta_size, source_size;
 			long target;
 			char rel[64];
-			if (!opened) {
-				if (disc_open(&disc, CurDICMD, ISOShift, id) < 0) {
-					files_failed("the disc", "could not be read");
-					return;
-				}
-				opened = 1;
-			}
 			snprintf(rel, sizeof(rel), "patches/%s.diff", name);
-			path_of(path, sizeof(path), src_dev, rel);
+			files_path(path, sizeof(path), src_dev, rel);
 			delta = load(path, &delta_size);
 			if (!delta) {
 				disc_close(&disc);
@@ -614,17 +667,17 @@ static void prepare_files(unsigned int CurDICMD, u32 ISOShift)
 			free(delta);
 			free(source);
 		} else {
-			path_of(path, sizeof(path), src_dev, e[i].path);
+			files_path(path, sizeof(path), src_dev, e[i].path);
 			out = load(path, &out_size);
 			if (!out)
 				error = "missing (put SlippWii's files on the SD card again)";
 		}
 		if (!error && (out_size != e[i].size || vcdiff_crc32(0, out, out_size) != e[i].crc))
-			error = e[i].patch ? "the result is wrong: not an unmodified NTSC 1.02 disc"
-					   : "damaged (put SlippWii's files on the SD card again)";
+			error = e[i].kind != KIND_COPY ? "the result is wrong: not an unmodified NTSC 1.02 disc"
+						       : "damaged (put SlippWii's files on the SD card again)";
 		if (!error) {
-			path_of(path, sizeof(path), dst_dev, e[i].path);
-			if (!e[i].patch && strcmp(src_dev, dst_dev) == 0)
+			files_path(path, sizeof(path), dst_dev, e[i].path);
+			if (e[i].kind == KIND_COPY && strcmp(src_dev, dst_dev) == 0)
 				;	/* already there */
 			else if (save(path, out, out_size) < 0)
 				error = "could not be written to the SD card (is it full or locked?)";
@@ -642,10 +695,46 @@ static void prepare_files(unsigned int CurDICMD, u32 ISOShift)
 	{
 		char text[16];
 		snprintf(text, sizeof(text), "%08lx\n", (unsigned long)stamp);
-		path_of(path, sizeof(path), dst_dev, "ready.txt");
+		files_path(path, sizeof(path), dst_dev, "ready.txt");
 		save(path, text, strlen(text));
 	}
 	FlushDevices();
+}
+
+/* ---- SlippWii's own changes to Slippi's menu files ---------------------------------------- */
+
+/* The Online Play menu's "Exit": its name and the lines under the menu, put into the files
+ * made above (slippwii_edits.h; tools/menu_edits.py says what and why). A place is changed
+ * only while it holds exactly Slippi's bytes, so this does its work once after the files are
+ * made, nothing on later starts, and nothing to a file that is not Slippi's. Without it the
+ * option would still leave, under Slippi's name for it ("Log-out"). */
+static void apply_edits(void)
+{
+	unsigned i;
+	int changed = 0;
+	for (i = 0; i < SLIPPWII_EDIT_COUNT; i++) {
+		const SlippWiiEdit *e = &slippwii_edits[i];
+		char rel[64], path[128];
+		FIL f;
+		UINT n = 0;
+		u8 *buf;
+		snprintf(rel, sizeof(rel), "files/%s", e->file);
+		files_path(path, sizeof(path), dst_dev, rel);
+		if (f_open_char(&f, path, FA_READ | FA_WRITE | FA_OPEN_EXISTING) != FR_OK)
+			continue;
+		buf = memalign(32, e->size);
+		if (buf && (u32)f_size(&f) >= e->offset + e->size
+		    && f_lseek(&f, e->offset) == FR_OK
+		    && f_read(&f, buf, e->size, &n) == FR_OK && n == e->size
+		    && (u32)vcdiff_crc32(0, buf, e->size) == e->old_crc
+		    && f_lseek(&f, e->offset) == FR_OK
+		    && f_write(&f, e->data, e->size, &n) == FR_OK && n == e->size)
+			changed++;
+		free(buf);
+		f_close(&f);
+	}
+	if (changed)
+		FlushDevices();
 }
 
 /* ---- the entry ------------------------------------------------------------------------ */
@@ -682,7 +771,9 @@ void SlippWii_Prepare(unsigned int CurDICMD, u32 ISOShift)
 		copy_to_game_drive("config.ini");
 	}
 	check_account();	/* first: without one there's no online play to get ready */
-	if (ncfg->Config & NIN_CFG_NETWORK)
+	if (ncfg->Config & NIN_CFG_NETWORK) {
 		prepare_files(CurDICMD, ISOShift);
+		apply_edits();
+	}
 	FlushDevices();
 }
