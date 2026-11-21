@@ -226,3 +226,48 @@ upstream Check for Updates uses IOS networking in the loader, where this
 kernel driver is not active; it may fail with adapters IOS cannot drive.
 Installing an official upstream build replaces the fork driver. This port
 keeps the upstream update verification and file allowlist unchanged.
+
+
+## Network startup test build (1.8.0)
+
+The diagnostics/slippwii-180-network-hang branch stops with error -5 when a
+recognized USB Ethernet adapter fails its device descriptor read (including a
+malformed response). It no longer silently tries native IOS networking in that
+case. Absent or unsupported adapters still use the native path. This does not
+add a timeout to IOS itself: a synchronous IOS operation can still block.
+
+The loading screen now shows a startup phase and an eight-digit hexadecimal
+checkpoint, without writing files during USB transactions. A photo of a stalled
+screen is sufficient to identify the last attempted operation:
+
+| Checkpoint | Last attempted operation |
+| --- | --- |
+| 00000001 | Open USB vendor device |
+| 00000002 | Get USB device-change snapshot |
+| 00000003 | Finish USB attach |
+| 00000004 | Resume selected adapter |
+| 00000005 | Read IP configuration |
+| 00000006 | Initialize lwIP |
+| 00000007 | Initialize adapter and discover endpoints |
+| 00000008 | DHCP acquisition (30-second limit while IOS returns) |
+| 00000009 | Gateway preflight (3 seconds while IOS returns) |
+| 0000000a | Save optional diagnostic log |
+| 0000000c | Start mirroring thread |
+| 0000000d | Start discovery thread |
+| 00000020..24 | Native IOS open KD, start NWC24, open IP, start IP, get host IP |
+| 10rrvvvv | USB control read: request rr, value/register vvvv |
+| 20rrvvvv | USB control write: request rr, value/register vvvv |
+
+For example, 1005e908 is a Realtek register read of e908, and 10060100
+is the USB device descriptor read. These checkpoints record entry into an
+operation; they do not establish that it finished or that it is the root cause.
+The last checkpoint may remain visible during subsequent local processing.
+
+The Router-Test Wii ZIP includes the full 1.8.0 runtime assets and a root
+slippi_asix.ini containing only dhcp=1. It intentionally replaces any old
+laptop-sharing static configuration on extraction. Back up that INI first if
+needed. Extract everything onto the device holding Melee, merging the folders;
+existing account credentials are not included or overwritten. Startup
+checkpoints work regardless of the Diagnostic Log setting. If it still stalls,
+photograph the Network line; if it errors, photograph the error code. If a new
+slippi_asix_boot.log exists, include it too.
