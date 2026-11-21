@@ -30,6 +30,7 @@ make windows=1 -j1 > "$ROOT/build.log" 2>&1 || { grep -n -i "error" "$ROOT/build
 # The kernel's memcpy returns the end of the destination, not its start: nothing linked into the
 # kernel may use the value (a library that did failed every TLS handshake on a Wii).
 python "$ROOT/tools/check_kernel_memcpy.py" "$ROOT/Nintendont/kernel/kernel.elf" || exit 1
+python "$ROOT/tools/check_kernel_syscalls.py" "$ROOT/Nintendont/kernel/kernel.elf" || exit 1
 # The kernel's offsets into the game's online buffers are Slippi's own (its codes' source says them).
 python "$ROOT/tools/check_exi_layout.py" || exit 1
 # The loader hangs the Wii at boot, every boot, at some places of its BSS (a black screen, nothing

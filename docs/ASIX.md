@@ -271,3 +271,22 @@ existing account credentials are not included or overwritten. Startup
 checkpoints work regardless of the Diagnostic Log setting. If it still stalls,
 photograph the Network line; if it errors, photograph the error code. If a new
 slippi_asix_boot.log exists, include it too.
+
+
+### Startup test 2: ARM/Thumb syscall fix
+
+A remote Wii stalled at checkpoint 00000005. The linked test-1 binary revealed
+that syscall_0c (message queue send) was exported as NOTYPE because syscalls.s
+spelled its .type symbol sycalll_0c. Thumb USB startup therefore branched directly
+into ARM instructions without an interworking veneer. The first queue send
+occurs after loading the INI but before checkpoint 6; later mutex releases also
+use this stub. Correcting its STT_FUNC declaration lets the linker generate the
+ARM/Thumb transition. No syscall instruction or queue behavior is changed.
+
+The new tools/check_kernel_syscalls.py build gate rejects missing source
+function declarations and surviving exported stubs with invalid ELF function
+metadata. It rejects the original test-1 kernel and must pass for test 2.
+Host socket tests alone cannot detect this instruction-set transition bug.
+The Router Startup Test 2 ZIP retains DHCP-only configuration and the startup
+screen checkpoints. The linked-code correction is verified locally; a Wii boot
+is still required to confirm resolution of the remote hang.
